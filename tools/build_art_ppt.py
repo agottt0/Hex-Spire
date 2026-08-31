@@ -221,10 +221,18 @@ def swatch(s, l, t, w, h, color, name, hexs, note=None):
 
 
 def hexa(s, cx, cy, size, fill=None, line=None, lw=1.25):
-    """pointy-top hex: pptx HEXAGON is flat-top, so rotate 90."""
+    """Pointy-top hexagon of width `size` (flat-to-flat) centred on (cx, cy).
+
+    pptx HEXAGON is flat-top, so we rotate 90deg. Rotation happens about the
+    shape's centre and does NOT change its bounding box, so the pre-rotation
+    box must be the post-rotation box transposed: w = size * 2/sqrt(3) becomes
+    the final height, and h = size becomes the final width.
+    """
+    w = size * 1.1547   # becomes the height after rotating
+    h = size            # becomes the width after rotating
     sh = s.shapes.add_shape(MSO_SHAPE.HEXAGON,
-                            int(cx - size / 2), int(cy - size * 0.5774),
-                            int(size), int(size * 1.1547))
+                            int(cx - w / 2), int(cy - h / 2),
+                            int(w), int(h))
     sh.rotation = 90
     if fill is None:
         sh.fill.background()
@@ -253,8 +261,16 @@ def bullets(s, l, t, w, items, size=13, gap=0.33, color=ASH, marker="—",
     return y
 
 
-def tag(s, l, t, text, color=FN_GOLD, size=10, padw=Inches(0.14), h=Inches(0.26)):
-    w = Inches(0.1) + Inches(0.085 * len(text)) + padw
+def text_w(text, size):
+    """Rough rendered width in EMU. CJK glyphs are full-width, ASCII ~0.55em."""
+    em = 0.0
+    for ch in text:
+        em += 1.0 if ord(ch) > 0x2E7F else 0.55
+    return Inches(em * size / 72.0)
+
+
+def tag(s, l, t, text, color=FN_GOLD, size=10, h=Inches(0.26)):
+    w = text_w(text, size) + Inches(0.26)
     rect(s, l, t, w, h, fill=None, line=color, lw=0.75)
     txt(s, l, t + Inches(0.035), w, Inches(0.2), text, size=size, color=color,
         bold=True, align=PP_ALIGN.CENTER, spacing=1.0)
