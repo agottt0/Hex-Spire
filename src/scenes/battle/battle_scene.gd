@@ -1,0 +1,487 @@
+extends Node2D
+## 战斗场景 —— 表现层入口
+##
+## ⚠️ 纪律 3 的兑现处：
+##   本文件【只订阅事件、只发送玩家输入】，绝不驱动逻辑。
+##   逻辑（BattleFlow）瞬时算完，这里每帧 drain state.event_log 回放。
+##   "一键跳过动画" = 把 K.EVENT_PLAYBACK_INTERVAL 改成 0。
+
+const HL := GreyboxTileSet.Alt
+
+var state: BattleState
+var flow: BattleFlow
+
+var board: HexBoardView
+var units_root: Node2D
+var ui_layer: CanvasLayer
+var camera: Camera2D
+
+var hand_box: HBoxContainer
+var status_label: Label
+var hero_label: Label
+var enemy_info: Label
+var preview_label: Label
+var log_label: Label
+var end_turn_btn: Button
+var restart_btn: Button
+var hero_option: OptionButton
+var layout_option: OptionButton
+var enc_option: OptionButton
+
+var _unit_views: Dictionary = {}      ## unit_id -> UnitView
+var _card_views: Array[CardView] = []
+var _selected_card: CardView = null
+var _legal_cells: Array = []
+var _log_lines: Array[String] = []
+
+
+func _ready() -> void:
+	_build_scene()
+	_start_battle("knight", "open_hall", "enc_01")
+	# 开发期：--shot 参数启动后自动截图并退出（无人值守验证画面）
+	for a in OS.get_cmdline_user_args():
+		if a == "--shot":
+			_auto_screenshot()
+			break
+
+
+func _auto_screenshot() -> void:
+	for _i in range(20):
+		await get_tree().process_frame
+	var img := get_viewport().get_texture().get_image()
+	var out := "user://battle_shot.png"
+	img.save_png(out)
+	print("[shot] %s  %dx%d" % [ProjectSettings.globalize_path(out),
+		img.get_width(), img.get_height()])
+	get_tree().quit(0)
+
+
+# ══════════════════════════════════════════════════════ 场景搭建
+
+func _build_scene() -> void:
+	board = HexBoardView.new()
+	board.name = "Board"
+	add_child(board)
+
+	units_root = Node2D.new()
+	units_root.name = "Units"
+	units_root.z_index = 10
+	add_child(units_root)
+
+	camera = Camera2D.new()
+	add_child(camera)
+
+	ui_layer = CanvasLayer.new()
+	add_child(ui_layer)
+
+	# ---- 顶部状态条
+	status_label = _mk_label(ui_layer, Vector2(16, 10), 20)
+	# ---- 左侧英雄面板
+	hero_label = _mk_label(ui_layer, Vector2(16, 44), 15)
+	# ---- 右侧敌人信息
+	enemy_info = _mk_label(ui_layer, Vector2(16, 190), 14)
+	# ---- 伤害预览
+	preview_label = _mk_label(ui_layer, Vector2(16, 330), 17)
+	preview_label.add_theme_color_override("font_color", Color("#FFC94D"))
+	# ---- 事件日志
+	log_label = _mk_label(ui_layer, Vector2(16, 380), 12)
+	log_label.add_theme_color_override("font_color", Color(0.7, 0.72, 0.78))
+
+	# ---- 手牌区
+	hand_box = HBoxContainer.new()
+	hand_box.add_theme_constant_override("separation", 8)
+	hand_box.position = Vector2(300, 880)
+	ui_layer.add_child(hand_box)
+
+	# ---- 按钮
+	end_turn_btn = Button.new()
+	end_turn_btn.text = "结束回合 (空格)"
+	end_turn_btn.position = Vector2(1660, 900)
+	end_turn_btn.size = Vector2(180, 50)
+	end_turn_btn.pressed.connect(_on_end_turn)
+	ui_layer.add_child(end_turn_btn)
+
+	restart_btn = Button.new()
+	restart_btn.text = "重开"
+	restart_btn.position = Vector2(1660, governs_y())
+	restart_btn.size = Vector2(180, 40)
+	restart_btn.pressed.connect(_on_restart)
+	ui_layer.add_child(restart_btn)
+
+	# ---- 配置下拉（灰盒期直接在场景里切换，省一个选人界面）
+	hero_option = _mk_option(ui_layer, Vector2(1660, 20), ["knight", "giant"])
+	layout_option = _mk_option(ui_layer, Vector2(1660, 60),
+		["open_hall", "narrow_pass", "bottleneck", "spike_cell"])
+	enc_option = _mk_option(ui_layer, Vector2(1660, 100),
+		["enc_01", "enc_02", "enc_03", "enc_04"])
+
+	var hint := _mk_label(ui_layer, Vector2(1660, 140), 12)
+	hint.text = "F1 坐标 / 右键取消\n改配置后点【重开】"
+
+
+func governs_y() -> int:
+	return 850
+
+
+func _mk_label(parent: Node, pos: Vector2, size: int) -> Label:
+	var l := Label.new()
+	l.position = pos
+	l.add_theme_font_size_override("font_size", size)
+	parent.add_child(l)
+	return l
+
+
+func _mk_option(parent: Node, pos: Vector2, items: Array) -> OptionButton:
+	var o := OptionButton.new()
+	o.position = pos
+	o.size = Vector2(180, 32)
+	for it in items:
+		o.add_item(it)
+	parent.add_child(o)
+	return o
+
+
+# ══════════════════════════════════════════════════════ 开局
+
+func _start_battle(hero_id: String, layout_id: String, enc_id: String) -> void:
+	CardInstance.reset_uid_counter()
+	var seed_value := int(Time.get_unix_time_from_system()) & 0x7FFFFFFF
+	var setup := BattleSetup.create(hero_id, layout_id, enc_id, seed_value)
+	state = setup["state"]
+	flow = setup["flow"]
+
+	_log_lines.clear()
+	for k in _unit_views:
+		(_unit_views[k] as Node).queue_free()
+	_unit_views.clear()
+
+	board.render_grid(state.grid)
+	_center_camera()
+
+	flow.battle_start(setup["deck"])
+	_sync_all()
+
+
+func _center_camera() -> void:
+	var r := board.board_rect()
+	# ⚠️ 布局约束（截图实测调出来的）：
+	#   · 左侧 ~300px 给英雄/敌人面板
+	#   · 底部 ~200px 给手牌，战场不能压到手牌上（否则玩家单位被挡住）
+	#   · 右侧 ~280px 给按钮与配置
+	var avail := Vector2(1920.0 - 300.0 - 280.0, 1080.0 - 60.0 - 210.0)
+	var zoom_f := minf(avail.x / r.size.x, avail.y / r.size.y)
+	camera.zoom = Vector2.ONE * clampf(zoom_f, 0.35, 1.2)
+	# 视口中心对准可用区中心（而非屏幕中心）
+	var view_center := Vector2(300.0 + avail.x * 0.5, 60.0 + avail.y * 0.5)
+	var screen_center := Vector2(960.0, 540.0)
+	camera.position = r.get_center() + (screen_center - view_center) / camera.zoom.x
+
+
+# ══════════════════════════════════════════════════════ 输入
+
+func _unhandled_input(ev: InputEvent) -> void:
+	if ev.is_action_pressed("toggle_coord_debug"):
+		board.toggle_coords()
+	elif ev.is_action_pressed("end_turn"):
+		_on_end_turn()
+	elif ev.is_action_pressed("cancel_action"):
+		_clear_selection()
+	elif ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+		_try_play_at_mouse()
+	elif ev is InputEventMouseMotion:
+		_update_preview()
+
+
+func _on_card_clicked(v: CardView) -> void:
+	if state.is_over or state.phase != GameEnums.BattlePhase.PLAYER_PHASE:
+		return
+	if not v.playable:
+		_flash("体力不足")
+		return
+	if _selected_card == v:
+		_clear_selection()
+		return
+	_select_card(v)
+
+
+func _select_card(v: CardView) -> void:
+	for c in _card_views:
+		c.set_selected(false)
+	_selected_card = v
+	v.set_selected(true)
+
+	var card := state.piles.find_in_hand(v.card_uid)
+	var player := state.player()
+	if card == null or player == null:
+		return
+	var cd: CardData = card.data
+
+	board.clear_highlight()
+	_legal_cells.clear()
+
+	if not cd.needs_target():
+		# 无目标卡：直接可打，高亮自身
+		board.paint_highlight(player.cells(), HL.HL_LEGAL)
+		return
+
+	_legal_cells = TargetResolver.legal_cells(state, player, cd.target_spec)
+	var alt := HL.HL_MOVE_OK if cd.card_type == GameEnums.CardType.MOVE else HL.HL_LEGAL
+	board.paint_highlight(_legal_cells, alt)
+
+
+func _clear_selection() -> void:
+	_selected_card = null
+	_legal_cells.clear()
+	for c in _card_views:
+		c.set_selected(false)
+	board.clear_highlight()
+	_paint_intents()
+	preview_label.text = ""
+
+
+func _try_play_at_mouse() -> void:
+	if _selected_card == null or state.is_over:
+		return
+	var card := state.piles.find_in_hand(_selected_card.card_uid)
+	if card == null:
+		_clear_selection()
+		return
+	var cd: CardData = card.data
+
+	var target := Vector3i.ZERO
+	if cd.needs_target():
+		var o := board.cell_at_mouse()
+		if o.x < 0:
+			return
+		target = HexCoord.offset_to_cube(o.x, o.y)
+		if not _legal_cells.has(target):
+			_flash("目标非法")
+			return
+
+	if flow.play_card(card, target):
+		_clear_selection()
+		_sync_all()
+
+
+func _on_end_turn() -> void:
+	if state.is_over or state.phase != GameEnums.BattlePhase.PLAYER_PHASE:
+		return
+	_clear_selection()
+	flow.end_turn()
+	_sync_all()
+
+
+func _on_restart() -> void:
+	_start_battle(
+		hero_option.get_item_text(hero_option.selected),
+		layout_option.get_item_text(layout_option.selected),
+		enc_option.get_item_text(enc_option.selected))
+
+
+# ══════════════════════════════════════════════════════ 同步（表现层只读）
+
+func _sync_all() -> void:
+	_drain_events()
+	_sync_units()
+	_sync_hand()
+	_sync_status()
+	_paint_intents()
+
+
+func _drain_events() -> void:
+	for e in state.drain_events():
+		var line := _format_event(e)
+		if line != "":
+			_log_lines.append(line)
+	while _log_lines.size() > 16:
+		_log_lines.pop_front()
+	log_label.text = "\n".join(_log_lines)
+
+
+func _format_event(e: Dictionary) -> String:
+	var t: String = e.get("t", "")
+	var d: Dictionary = e.get("d", {})
+	match t:
+		"round_started":
+			return "── 回合 %d ──" % d.get("round", 0)
+		"damage_dealt":
+			if d.get("dodged", false):
+				return "  闪避！"
+			var crit := "  暴击!" if d.get("crit", false) else ""
+			return "  伤害 %d（格挡吸收 %d）%s" % [
+				d.get("amount", 0), d.get("to_block", 0), crit]
+		"block_gained":
+			if d.get("blocked_by_rule", false):
+				return "  无法获得格挡（规则改写）"
+			return "  获得格挡 %d（共 %d）" % [d.get("amount", 0), d.get("total", 0)]
+		"unit_died":
+			return "  ☠ %s 被击败" % d.get("name", "?")
+		"deck_reshuffled":
+			return "  ♻ 弃牌堆洗回（第 %d 次）" % d.get("times", 0)
+		"card_played":
+			return "  打出 %s" % d.get("id", "")
+		"intent_missed":
+			return "  敌人打空了！"
+		"rotate_blocked":
+			return "  转向失败：空间不足"
+		"move_aborted":
+			return "  移动中止：%s" % d.get("reason", "")
+		"hazard_damage":
+			return "  地形伤害 %d（%d 格）" % [d.get("amount", 0), d.get("cells", 0)]
+		"knockback_resisted":
+			return "  抵抗了击退"
+		"battle_ended":
+			return "══ %s ══" % ("胜利！" if d.get("won", false) else "失败")
+		_:
+			return ""
+
+
+func _sync_units() -> void:
+	var seen := {}
+	for u in state.units:
+		if not u.is_alive:
+			continue
+		seen[u.id] = true
+		var v: UnitView = _unit_views.get(u.id)
+		if v == null:
+			v = UnitView.new()
+			units_root.add_child(v)
+			_unit_views[u.id] = v
+		var d := u.to_dict()
+		var cells: Array = []
+		for c in u.cells():
+			var o := HexCoord.cube_to_offset(c)
+			cells.append([o.x, o.y])
+		d["cells"] = cells
+		v.intent_text = _intent_brief(u)
+		v.sync_from(d, board)
+	# 移除已死单位
+	for id in _unit_views.keys():
+		if not seen.has(id):
+			(_unit_views[id] as Node).queue_free()
+			_unit_views.erase(id)
+
+
+func _intent_brief(u: Unit) -> String:
+	if u.team != GameEnums.Team.ENEMY or u.intent.is_empty():
+		return ""
+	var kind: int = u.intent.get("kind", 0)
+	match kind:
+		int(GameEnums.IntentKind.ATTACK), int(GameEnums.IntentKind.MULTI_ATTACK):
+			var tag := "可躲" if u.intent.get("dodgeable", false) else "追踪"
+			return "🗡%d [%s]" % [u.intent.get("preview_min", 0), tag]
+		int(GameEnums.IntentKind.MOVE):
+			return "→ 移动"
+		int(GameEnums.IntentKind.SLEEP):
+			return "… 待机"
+		_:
+			return "?"
+
+
+## 敌人意图的地面高亮（§8.7：预定打击格）
+func _paint_intents() -> void:
+	if _selected_card != null:
+		return
+	board.clear_highlight()
+	for u in state.alive_enemies():
+		var cells: Array = u.intent.get("cells", [])
+		var out: Array = []
+		for cell in cells:
+			out.append(HexCoord.offset_to_cube(cell[0], cell[1]))
+		if not out.is_empty():
+			board.paint_highlight(out, HL.HL_INTENT)
+
+
+func _sync_hand() -> void:
+	for v in _card_views:
+		v.queue_free()
+	_card_views.clear()
+	var player := state.player()
+	if player == null:
+		return
+	# 手牌按 uid 排序，避免每次刷新顺序跳动
+	var hand: Array = state.piles.hand.duplicate()
+	hand.sort_custom(func(a: CardInstance, b: CardInstance) -> bool: return a.uid < b.uid)
+	for c in hand:
+		var cd: CardData = c.data
+		if cd == null:
+			continue
+		var cost := RuleBook.card_cost(state, c.base_cost())
+		var v := CardView.new()
+		hand_box.add_child(v)
+		# ⚠️ 描述用实算值渲染 —— 同时验证 §7.5 的系数化
+		v.setup(c.uid, cd, cost, cd.render_description(player), cost <= state.energy)
+		v.card_clicked.connect(_on_card_clicked)
+		_card_views.append(v)
+
+
+func _sync_status() -> void:
+	var p := state.player()
+	var phase_names := ["开局", "回合开始", "玩家阶段", "回合结束", "敌方阶段",
+						"结算", "拾取", "胜利", "失败"]
+	var ph: String = phase_names[clampi(int(state.phase), 0, 8)]
+	status_label.text = "回合 %d   %s   体力 %d/%d   抽牌堆 %d  弃牌堆 %d" % [
+		state.round_number, ph, state.energy, RuleBook.energy_max(state),
+		state.piles.draw_pile.size(), state.piles.discard_pile.size()]
+
+	if p != null:
+		var sz: String = ["S(1格)", "M(3格)", "L(6格)"][clampi(int(p.size_class), 0, 2)]
+		hero_label.text = "%s  %s\nHP %d/%d   格挡 %d\nATK %d  DEF %d  AGI %d\nLUK %d  CRIT %d%%" % [
+			p.display_name, sz, p.hp, p.hp_max, p.block,
+			p.atk, p.def, p.agi, p.luk, p.crit]
+
+	var lines: Array[String] = ["敌人："]
+	for u in state.alive_enemies():
+		var o := HexCoord.cube_to_offset(u.anchor)
+		lines.append("  %s (%d,%d) HP %d/%d  %s" % [
+			u.display_name, o.x, o.y, u.hp, u.hp_max, _intent_brief(u)])
+	if state.is_over:
+		lines.append("")
+		lines.append("【%s】点【重开】再来一局" % ("胜利" if state.player_won else "失败"))
+	enemy_info.text = "\n".join(lines)
+
+	end_turn_btn.disabled = state.is_over or state.phase != GameEnums.BattlePhase.PLAYER_PHASE
+
+
+## 伤害预览（§13.2 硬要求）。⚠️ 走 preview 分支，不消耗 RNG。
+func _update_preview() -> void:
+	if _selected_card == null:
+		preview_label.text = ""
+		return
+	var card := state.piles.find_in_hand(_selected_card.card_uid)
+	if card == null:
+		return
+	var o := board.cell_at_mouse()
+	if o.x < 0:
+		preview_label.text = ""
+		return
+	var target := HexCoord.offset_to_cube(o.x, o.y)
+	if not _legal_cells.is_empty() and not _legal_cells.has(target):
+		preview_label.text = "（目标非法）"
+		return
+	var pv := flow.preview_card_damage(card, target)
+	if pv.is_empty():
+		preview_label.text = ""
+		return
+	var parts: Array[String] = []
+	for uid in pv:
+		var u := state.unit_by_id(uid)
+		var e: Dictionary = pv[uid]
+		var total_min := int(e["min"]) * int(e["repeat"])
+		var total_max := int(e["max"]) * int(e["repeat"])
+		var rep := (" ×%d" % e["repeat"]) if int(e["repeat"]) > 1 else ""
+		parts.append("%s: %d（暴击 %d）%s" % [
+			u.display_name if u != null else "?", total_min, total_max, rep])
+	preview_label.text = "预计伤害  " + "   ".join(parts)
+	# 同时高亮实际波及格
+	var cd: CardData = card.data
+	var player := state.player()
+	if player != null:
+		var affected := TargetResolver.affected_cells(state, player, cd.target_spec, target)
+		if affected.size() > 1:
+			board.paint_highlight(affected, HL.HL_AFFECTED)
+
+
+func _flash(msg: String) -> void:
+	_log_lines.append("  ⚠ " + msg)
+	log_label.text = "\n".join(_log_lines)

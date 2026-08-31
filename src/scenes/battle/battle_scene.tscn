@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://bhexspire1battle"]
+
+[ext_resource type="Script" path="res://src/scenes/battle/battle_scene.gd" id="1_battle"]
+
+[node name="BattleScene" type="Node2D"]
+script = ExtResource("1_battle")
