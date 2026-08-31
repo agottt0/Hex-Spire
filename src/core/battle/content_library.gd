@@ -277,6 +277,13 @@ static func layout_narrow_pass() -> HexGrid:
 
 
 ## 狭道·1格门：只有 S 能过（真正的体型闸门）
+##
+## ⚠️ 配对警告（实测结论）：这张图【不要配远程敌人给 M/L 英雄】。
+##   巨人(M) + bottleneck + enc_02（含投石手）实测 15 场全败 ——
+##   巨人过不了门，被远程追踪型隔墙风筝到死，玩家毫无应对手段。
+##   这是体型闸门正常生效的结果（§4.2 的代价面），但作为关卡配置不公平。
+##   §9.7 的模板校验器应加一条：max_enemy_size 之外还要校验
+##   "门宽 < 英雄体型时，怪物组不得含 TRACK_TARGET 远程单位"。
 static func layout_bottleneck() -> HexGrid:
 	var g := HexGrid.new()
 	for col in range(1, 8):
