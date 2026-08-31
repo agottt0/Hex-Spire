@@ -23,7 +23,9 @@ const CORE_FORBIDDEN := [
 	["(?<![.\\w])randf\\s*\\(", "直接调用 randf()", "纪律1 注入式RNG"],
 	["(?<![.\\w])randi_range\\s*\\(", "直接调用 randi_range()", "纪律1 注入式RNG"],
 	["(?<![.\\w])randomize\\s*\\(", "调用 randomize()", "纪律1 注入式RNG"],
-	["\\.shuffle\\s*\\(", "Array.shuffle() 用全局RNG", "纪律1 注入式RNG"],
+	# ⚠️ 只禁 `xxx.shuffle(` 且接收者不是 rng ——
+	#   `rng.shuffle(arr, rng.deck)` 是注入式实现，合法。
+	["(?<!rng)(?<!streams)\\.shuffle\\s*\\(", "Array.shuffle() 用全局RNG", "纪律1 注入式RNG"],
 	["\\.pick_random\\s*\\(", "Array.pick_random() 用全局RNG", "纪律1 注入式RNG"],
 	["\\bawait\\b", "core 里 await（逻辑不得等待动画）", "纪律3 表现层分离"],
 	["get_tree\\s*\\(", "core 引用场景树", "纪律3 表现层分离"],
@@ -60,11 +62,28 @@ const MAP_CONV_ALLOWED := [
 	"res://src/scenes/battle/hex_board_view.gd",
 ]
 
-## GameRule 只允许在这三个文件里出现
+## GameRule 只允许在这几个文件里出现。
+##
+## 区分【声明】与【消费】：
+##   · content_library / hero_data 只是把规则写进数据（声明"骑士有 BLOCK_PERSISTS"），
+##     不读取当前有效值 → 允许
+##   · 读取"当前生效的规则值"必须走 rule_book.gd 的消费函数 → 白名单外禁止
 const GAMERULE_PATTERN := "GameRule\\.[A-Z_]+"
 const GAMERULE_ALLOWED := [
 	"res://src/core/enums.gd",
 	"res://src/core/battle/rule_book.gd",
+	"res://src/core/runes/rune_loadout.gd",
+	"res://src/core/battle/content_library.gd",   # 声明数据，非消费
+	"res://src/core/battle/hero_data.gd",         # 声明数据，非消费
+]
+
+## 额外强制：读取规则值只能走 RuleBook。
+## 直接访问 state.rule_agg 就是绕过单消费点。
+const RULE_AGG_PATTERN := "rule_agg\\s*[\\.\\[]"
+const RULE_AGG_ALLOWED := [
+	"res://src/core/battle/rule_book.gd",
+	"res://src/core/battle/battle_state.gd",   # 定义与快照
+	"res://src/core/battle/battle_setup.gd",   # 初始化赋值
 	"res://src/core/runes/rune_loadout.gd",
 ]
 
@@ -78,7 +97,8 @@ func _initialize() -> void:
 	_check_dir(CORE_DIR, CORE_FORBIDDEN, "core")
 	_check_dir(SCENES_DIR, SCENES_FORBIDDEN, "scenes")
 	_check_whitelist(MAP_CONV_PATTERN, MAP_CONV_ALLOWED, "TileMap 坐标转换")
-	_check_whitelist(GAMERULE_PATTERN, GAMERULE_ALLOWED, "GameRule 消费点")
+	_check_whitelist(GAMERULE_PATTERN, GAMERULE_ALLOWED, "GameRule 声明/消费")
+	_check_whitelist(RULE_AGG_PATTERN, RULE_AGG_ALLOWED, "rule_agg 直接访问（应走 RuleBook）")
 
 	print("")
 	if violations.is_empty():
