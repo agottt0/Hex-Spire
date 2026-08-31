@@ -1,0 +1,23 @@
+# Godot 4
+.godot/
+/android/
+*.translation
+
+# 导出产物
+build/
+export/
+*.exe
+*.pck
+
+# 编辑器/系统
+.DS_Store
+Thumbs.db
+*.swp
+
+# 美术源文件（体积大，不进库；见 01_美术高概念.md §13.4）
+Art/source/
+*.psd
+*.ai
+
+# PPTX 渲染检查中间产物
+.pptcheck/
