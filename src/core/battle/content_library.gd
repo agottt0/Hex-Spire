@@ -91,9 +91,12 @@ static func all_cards() -> Array[CardData]:
 		[EffectStep.make(GameEnums.EffectOp.DEAL_DAMAGE, 0.0, "ATK", 1.0)],
 		["近战"]))
 
+	# ⚠️ 防御卡的费效曾严重过高：《防御》= 2+DEF×1.0 = 10 格挡/1 费，
+	#   每回合能打 2–3 张 → 20–30 格挡，而最强普通敌人只打 6–8 点（4.2 倍过剩）。
+	#   压到 1+DEF×0.6 = 5.8/张，配合 K_BLOCK_CAP_RATIO 上限，格挡回归"减伤"而非"无敌"。
 	out.append(_card("def_basic", "防御", GameEnums.CardType.GUARD, 1,
 		TargetSpec.self_target(),
-		[EffectStep.make(GameEnums.EffectOp.GAIN_BLOCK, 2.0, "DEF", 1.0)],
+		[EffectStep.make(GameEnums.EffectOp.GAIN_BLOCK, 1.0, "DEF", 0.6)],
 		["格挡"]))
 
 	var mv := EffectStep.make(GameEnums.EffectOp.MOVE_SELF)
@@ -127,10 +130,13 @@ static func all_cards() -> Array[CardData]:
 		[EffectStep.make(GameEnums.EffectOp.DEAL_DAMAGE, 0.0, "ATK", 1.8)],
 		["近战"]))
 
-	# 《连刺》repeat=3 → ON_ATTACK 触发 3 次，是 R7 的压力来源
+	# ⚠️ 曾是 ATK×0.5×3。因为 floor 取整损失被摊薄 3 次，
+	#   1 费打出 12 点（费效 12）远超《重击》2 费 15 点（费效 7.5）——
+	#   1.6 倍差距让"有连刺就打连刺"，其他攻击卡失去存在意义。
+	#   压到 0.42 后费效约 9，与《重击》同档，出牌重新需要看情况。
 	out.append(_card("multi_stab", "连刺", GameEnums.CardType.ATTACK, 1,
 		TargetSpec.make(GameEnums.TargetShape.SINGLE, 1, 1),
-		[EffectStep.make(GameEnums.EffectOp.DEAL_DAMAGE, 0.0, "ATK", 0.5, 3)],
+		[EffectStep.make(GameEnums.EffectOp.DEAL_DAMAGE, 0.0, "ATK", 0.42, 3)],
 		["近战", "连击"]))
 
 	out.append(_card("pierce_javelin", "穿刺投枪", GameEnums.CardType.ATTACK, 2,
@@ -140,13 +146,15 @@ static func all_cards() -> Array[CardData]:
 
 	out.append(_card("iron_wall", "铁壁", GameEnums.CardType.GUARD, 2,
 		TargetSpec.self_target(),
-		[EffectStep.make(GameEnums.EffectOp.GAIN_BLOCK, 4.0, "DEF", 1.5)],
+		[EffectStep.make(GameEnums.EffectOp.GAIN_BLOCK, 2.0, "DEF", 0.9)],
 		["格挡"]))
 
-	# 《冲撞》：位移即伤害（§8.6）
+	# 《冲撞》：位移即伤害（§8.6）。
+	# ⚠️ 伤害曾是 ATK×0.4 = 3 点，是废牌。现在 ATK×0.7 + 击退撞墙额外 8 点
+	#   → 把敌人推到墙上或尖刺里成为真正的战术选择（五件套机制 3+4）。
 	var ch_dash := EffectStep.make(GameEnums.EffectOp.DASH)
 	ch_dash.distance = 3
-	var ch_dmg := EffectStep.make(GameEnums.EffectOp.DEAL_DAMAGE, 0.0, "ATK", 0.4)
+	var ch_dmg := EffectStep.make(GameEnums.EffectOp.DEAL_DAMAGE, 0.0, "ATK", 0.7)
 	var ch_kb := EffectStep.make(GameEnums.EffectOp.KNOCKBACK)
 	ch_kb.distance = 2
 	out.append(_card("charge", "冲撞", GameEnums.CardType.ATTACK, 1,
@@ -161,14 +169,20 @@ static func all_cards() -> Array[CardData]:
 		TargetSpec.make(GameEnums.TargetShape.SINGLE, 1, 2),
 		[ig_dmg, ig_burn], ["火焰", "状态"]))
 
+	# ⚠️ 曾是 0 费。0 费抽 2 无代价无上限 → 玩家永远不缺牌，
+	#   单回合能打 7 张（5 体力），卡组构筑的取舍消失（R1'）。改 1 费。
 	var draw2 := EffectStep.make(GameEnums.EffectOp.DRAW_CARD)
 	draw2.repeat = 2
-	out.append(_card("quick_plan", "急谋", GameEnums.CardType.SKILL, 0,
+	out.append(_card("quick_plan", "急谋", GameEnums.CardType.SKILL, 1,
 		TargetSpec.self_target(), [draw2], ["抽牌"]))
 
+	# ⚠️ 曾是 0 费。0 费移动 2 格意味着【躲避零成本】——
+	#   实测骑士每个回合都打它躲掉所有"可躲"攻击，全程 0 掉血。
+	#   "硬但公平"要求躲避是一个【有代价的选择】，而不是免费的默认动作。
+	#   改 1 费后，玩家每回合要在"躲"和"多打一张输出"之间取舍。
 	var dash2 := EffectStep.make(GameEnums.EffectOp.MOVE_SELF)
 	dash2.distance = 2
-	out.append(_card("gust_step", "疾风步", GameEnums.CardType.MOVE, 0,
+	out.append(_card("gust_step", "疾风步", GameEnums.CardType.MOVE, 1,
 		TargetSpec.make(GameEnums.TargetShape.TILE, 1, 2, 0, false),
 		[dash2], ["位移"]))
 
@@ -221,26 +235,32 @@ static func _enemy(
 static func all_enemies() -> Array[EnemyData]:
 	var out: Array[EnemyData] = []
 
-	# 打空型：玩家走开就落空（可躲）
+	# ⚠️ 敌人 ATK 在 2A 调平衡时统一上调约 1.6 倍。两个原因叠加：
+	#   ① 原数值下 enc_02 只打 11 点/回合，骑士 80 HP 能撑 7 回合 → 无威胁
+	#   ② K_DEF_SOFTCAP 从 50 改到 12 后 DEF 真正生效（骑士 DEF8 = 40% 减伤），
+	#      进一步压低了敌人实际输出
+	#   目标：enc_02 总输出 ≈ 19 点/回合 → 骑士撑 4 回合（"硬但公平"的节奏）
+
+	# 打空型：玩家走开就落空（但攻击有范围，躲需要走出 2 格）
 	out.append(_enemy("biting_hound", "扑咬犬", GameEnums.SizeClass.S,
-		24, 8, 2, 8,
+		24, 13, 2, 8,
 		GameEnums.AIProfile.AGGRESSIVE, GameEnums.IntentTargeting.FIXED_TILE))
 
 	# 追踪型：躲不掉，但可以断视线
 	out.append(_enemy("stone_slinger", "投石手", GameEnums.SizeClass.S,
-		18, 6, 1, 5,
+		18, 10, 1, 5,
 		GameEnums.AIProfile.RANGED_KITER, GameEnums.IntentTargeting.TRACK_TARGET))
 
 	# M 体型：相邻格多、转向慢 → 绕后价值高
 	var golem := _enemy("stone_golem", "石傀", GameEnums.SizeClass.M,
-		60, 10, 6, 4,
+		60, 16, 6, 4,
 		GameEnums.AIProfile.BLOCKER, GameEnums.IntentTargeting.FIXED_TILE)
 	golem.is_elite = true
 	out.append(golem)
 
-	# L 体型：免疫击退、可碾压
+	# L 体型：免疫击退、可碾压、按 HP 切三阶段
 	var worm := _enemy("siege_worm", "攻城虫", GameEnums.SizeClass.L,
-		120, 14, 8, 2,
+		120, 22, 8, 2,
 		GameEnums.AIProfile.BOSS_PHASED, GameEnums.IntentTargeting.FIXED_TILE)
 	worm.is_boss = true
 	worm.knockback_resist_override = 999

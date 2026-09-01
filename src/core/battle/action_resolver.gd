@@ -114,10 +114,21 @@ func _h_gain_block(a: GameAction, state, q: ActionQueue) -> void:
 		state.log_event("block_gained", {"tgt": u.id, "amount": 0, "blocked_by_rule": true})
 		return
 	var amount := int(round(float(a.data.get("amount", 0)) * RuleBook.block_multiplier(state)))
-	u.block += amount
-	state.log_event("block_gained", {"tgt": u.id, "amount": amount, "total": u.block})
-	state.trigger_bus.emit(GameEnums.TriggerTiming.ON_BLOCK_GAINED,
-		{"source_id": u.id, "amount": amount}, state, q)
+
+	# ⚠️ 格挡上限（策划案 §4.2「可叠加**至上限**」）。
+	#   上限曾完全没实现 → 骑士 10 回合叠到 140 格挡（HP 80），全程 0 掉血。
+	var cap := maxi(K.K_BLOCK_CAP_MIN, int(float(u.hp_max) * K.K_BLOCK_CAP_RATIO))
+	var before := u.block
+	u.block = mini(u.block + amount, cap)
+	var actual := u.block - before
+
+	state.log_event("block_gained", {
+		"tgt": u.id, "amount": actual, "total": u.block, "cap": cap,
+		"capped": actual < amount,
+	})
+	if actual > 0:
+		state.trigger_bus.emit(GameEnums.TriggerTiming.ON_BLOCK_GAINED,
+			{"source_id": u.id, "amount": actual}, state, q)
 
 
 func _h_heal(a: GameAction, state, _q: ActionQueue) -> void:
@@ -257,13 +268,28 @@ func _displace(a: GameAction, state, q: ActionQueue, sign: int) -> void:
 
 	var d := HexCoord.DIRS[posmod(int(a.data.get("dir", 0)), 6)] * sign
 	var moved := 0
+	var slammed := false
 	for _i in range(dist):
 		var next: Vector3i = u.anchor + d
 		if not state.relocate_unit(u, next, u.facing):
-			# 撞墙/撞单位 → 停止（§8.6：撞墙可产生额外伤害，由卡牌效果单独处理）
+			# 撞墙/撞单位 → 停止，并结算额外伤害（§8.6「位移即伤害」）
+			# ⚠️ 这里曾只发事件不结算伤害，导致击退纯粹是"挪位置"，
+			#   没有伤害收益 → 位移卡失去战术价值。
+			slammed = true
 			state.log_event("displace_blocked", {"unit": u.id, "moved": moved})
 			break
 		moved += 1
+
+	# 撞墙伤害只在"还有剩余位移距离却被挡住"时结算 —— 撞得越狠越疼是后续可加的
+	if slammed and moved < dist:
+		var packet := {
+			"final": K.K_WALL_SLAM_DAMAGE,
+			"to_block": mini(K.K_WALL_SLAM_DAMAGE, u.block),
+			"to_hp": maxi(0, K.K_WALL_SLAM_DAMAGE - u.block),
+			"crit": false, "dodged": false,
+		}
+		q.push_next(Actions.damage(-1, u.id, packet, "wall_slam"))
+
 	if moved > 0:
 		var o := HexCoord.cube_to_offset(u.anchor)
 		state.log_event("unit_moved", {
@@ -375,7 +401,10 @@ func _h_hazard_tick(a: GameAction, state, _q: ActionQueue) -> void:
 		return
 	# ⚠️ 大体型同时站多个 hazard 时【每格各结算一次】（§8.2.2 机制点 7）
 	var cells := int(a.data.get("cells", 1))
-	var per_cell := 3
+	# 危害伤害曾是 3 点，而敌人 24–120 HP → 占比 12.5%，
+	# "把敌人推进尖刺"几乎没有收益，五件套之一的「位移即伤害」形同不存在。
+	# 提到 12 点后：占扑咬犬 HP 50%、石傀 20% —— 推拉真正成为战术。
+	var per_cell := K.K_HAZARD_DAMAGE
 	var total := per_cell * cells
 	u.hp = maxi(0, u.hp - total)
 	state.log_event("hazard_damage", {"unit": u.id, "cells": cells, "amount": total, "hp": u.hp})

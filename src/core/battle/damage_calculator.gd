@@ -123,10 +123,15 @@ static func crit_multiplier(source: Unit) -> float:
 
 
 ## 闪避率（§4.3：AGI 的次要作用）。背击无法被闪避（§8.2.3）。
+##
+## ⚠️ 递减曲线，不是线性 —— 见 K.K_AGI_TO_DODGE 的注释。
 static func dodge_chance(ctx: Context) -> float:
 	if ctx.target == null or ctx.from_rear:
 		return 0.0
-	return minf(float(ctx.target.agi) * K.K_AGI_TO_DODGE, K.K_DODGE_CAP)
+	var agi := float(ctx.target.agi)
+	if agi <= 0.0:
+		return 0.0
+	return minf(agi * K.K_AGI_TO_DODGE / (agi + K.K_DODGE_SOFTCAP), K.K_DODGE_CAP)
 
 
 ## ══════════════════════════════════════════════════════════════

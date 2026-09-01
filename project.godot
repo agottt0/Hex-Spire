@@ -24,23 +24,11 @@ RNGService="*res://src/autoload/rng_service.gd"
 
 [display]
 
-; 设计基准分辨率。UI 全部用锚点 + 相对尺寸，所以基准只影响字号手感。
 window/size/viewport_width=1920
 window/size/viewport_height=1080
-
-; ⚠️ 窗口默认开 1280×720 —— 不要用 1920×1080：
-;   在 1080p 屏幕上开满屏会超出可视范围（实测会跨到第二个显示器）。
-;   玩家可以自由拉伸/最大化，stretch 会自动适配。
 window/size/window_width_override=1280
 window/size/window_height_override=720
-window/size/resizable=true
-
-; canvas_items + keep = 【等比缩放并保持宽高比】，两侧留黑边。
-;   曾用 aspect="expand"：视口不缩放、只是露出更多/更少内容，
-;   于是小于基准分辨率时 UI 直接跑到画面外看不见 —— 这是本次要修的 bug。
 window/stretch/mode="canvas_items"
-window/stretch/aspect="keep"
-; 最小窗口尺寸，防止缩到 UI 完全不可用
 window/size/min_width=960
 window/size/min_height=540
 

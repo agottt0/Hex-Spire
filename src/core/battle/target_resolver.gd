@@ -59,6 +59,15 @@ static func _team_allowed(spec: TargetSpec, caster: Unit, target: Unit) -> bool:
 
 
 ## 给定选定格，求实际波及的【单位集合】（去重 —— 机制点 2）
+##
+## ⚠️ 这里曾漏掉队伍过滤，造成一个很隐蔽的 bug：
+##   LINE 形状从 caster.anchor 起算，而 M/L 玩家【自身的 footprint 格就在线上】
+##   → 《穿刺投枪》扎自己。实测巨人 vs enc_04 在敌人零次攻击的回合掉 17 血
+##     （投枪 11 + 冲撞 4），20/20 全败其实是自杀，不是被 Boss 打死。
+##   骑士（S 体型，footprint=1）因为 cells_in_line 从 anchor+d 起算跳过了自己，
+##   侥幸没暴露 —— 这类"小体型偶然正确"的 bug 最难发现。
+##
+##   已确认的规则：**完全禁止友伤**。AOE/直线一律只打敌对单位。
 static func affected_units(state, caster: Unit, spec: TargetSpec, chosen: Vector3i) -> Array[Unit]:
 	var cells := affected_cells(state, caster, spec, chosen)
 	var seen := {}
@@ -68,6 +77,9 @@ static func affected_units(state, caster: Unit, spec: TargetSpec, chosen: Vector
 		if u == null or not u.is_alive:
 			continue
 		if seen.has(u.id):
+			continue
+		# 队伍过滤：只打敌对单位。自己与友方一律跳过。
+		if u.id == caster.id or not caster.is_hostile_to(u):
 			continue
 		seen[u.id] = true
 		out.append(u)
@@ -93,7 +105,12 @@ static func affected_cells(state, caster: Unit, spec: TargetSpec, chosen: Vector
 		GameEnums.TargetShape.LINE:
 			var di := _dir_index_towards(caster.anchor, chosen)
 			var n := spec.area_size if spec.area_size > 0 else spec.range_max
+			# ⚠️ 排除施法者自身占格：M/L 体型的 footprint 会落在这条线上，
+			#    否则 UI 会把"打到自己"高亮出来（伤害侧已在 affected_units 过滤）
+			var own := _own_cells_set(caster)
 			for c in state.grid.cells_in_line(caster.anchor, di, n):
+				if own.has(c):
+					continue
 				out.append(c)
 
 		GameEnums.TargetShape.BURST:
@@ -106,7 +123,10 @@ static func affected_cells(state, caster: Unit, spec: TargetSpec, chosen: Vector
 
 		GameEnums.TargetShape.CONE:
 			var di2 := _dir_index_towards(caster.anchor, chosen)
+			var own2 := _own_cells_set(caster)
 			for c in _cone_cells(state, caster.anchor, di2, maxi(1, spec.area_size)):
+				if own2.has(c):
+					continue
 				out.append(c)
 
 		GameEnums.TargetShape.ADJACENT_ALL:
@@ -114,6 +134,14 @@ static func affected_cells(state, caster: Unit, spec: TargetSpec, chosen: Vector
 			for c in caster.adjacent_cells():
 				out.append(c)
 
+	return out
+
+
+## 施法者自身占格的集合（用于 LINE/CONE 排除自己）
+static func _own_cells_set(caster: Unit) -> Dictionary:
+	var out := {}
+	for c in caster.cells():
+		out[c] = true
 	return out
 
 

@@ -22,53 +22,184 @@ static func decide(state, enemy: Unit) -> Dictionary:
 			return _decide_ranged(state, enemy, player, dist)
 		GameEnums.AIProfile.BLOCKER:
 			return _decide_blocker(state, enemy, player, dist)
+		GameEnums.AIProfile.BOSS_PHASED:
+			return _decide_boss(state, enemy, player, dist)
 		_:
 			return _decide_melee(state, enemy, player, dist)
+
+
+## Boss：按 HP 百分比切换阶段（§8.7 的 BOSS_PHASED）。
+##
+## ⚠️ 这个分支曾【完全缺失】—— `match` 没有 BOSS_PHASED case，
+##    于是静默 fallthrough 到 _decide_melee，攻城虫和扑咬犬用同一套 AI。
+##    数据里标了 profile 而代码忽略 = 数据/代码不一致，属于 bug。
+##
+## 三个阶段（HP 阈值取自策划案 §15.8 boss_phases 的形态）：
+##   阶段1 (>50%)  常规近战
+##   阶段2 (25-50%) 更激进：优先走到能同时覆盖多格的位置，用 MULTI_ATTACK
+##   阶段3 (<25%)  狂暴：每回合都攻击，移动力 +1
+static func boss_phase(enemy: Unit) -> int:
+	var ratio := float(enemy.hp) / float(maxi(1, enemy.hp_max))
+	if ratio > 0.5:
+		return 1
+	if ratio > 0.25:
+		return 2
+	return 3
+
+
+static func _decide_boss(state, enemy: Unit, player: Unit, dist: int) -> Dictionary:
+	var phase := boss_phase(enemy)
+
+	if dist <= 1:
+		var d := _make_attack(state, enemy, player)
+		if phase >= 2:
+			# 阶段2+：范围攻击，覆盖自身全部相邻格（大体型相邻格多 → 很难躲）
+			d["kind"] = int(GameEnums.IntentKind.MULTI_ATTACK)
+			var cells: Array = []
+			for c in enemy.adjacent_cells():
+				var o := HexCoord.cube_to_offset(c)
+				cells.append([o.x, o.y])
+			d["cells"] = cells
+		d["phase"] = phase
+		return d
+
+	# 阶段3 狂暴：移动力 +1
+	var budget := move_budget(enemy) + (1 if phase == 3 else 0)
+	var path := _move_path(state, enemy, player, budget)
+	if path.is_empty():
+		return {"kind": int(GameEnums.IntentKind.SLEEP), "reason": "unreachable", "phase": phase}
+	return {
+		"kind": int(GameEnums.IntentKind.MOVE),
+		"path": path,
+		"facing": _facing_towards(enemy.anchor, player.anchor),
+		"phase": phase,
+	}
 
 
 ## 近战：不相邻则移动靠近，相邻则攻击
 static func _decide_melee(state, enemy: Unit, player: Unit, dist: int) -> Dictionary:
 	if dist <= 1:
 		return _make_attack(state, enemy, player)
-	var step := _step_towards(state, enemy, player)
-	if step.is_empty():
+	var path := _move_path(state, enemy, player, move_budget(enemy))
+	if path.is_empty():
 		return {"kind": int(GameEnums.IntentKind.SLEEP), "reason": "unreachable"}
 	return {
 		"kind": int(GameEnums.IntentKind.MOVE),
-		"path": [step],
+		"path": path,
 		"facing": _facing_towards(enemy.anchor, player.anchor),
 	}
 
 
-## 求朝玩家靠近的一步（offset 形式）。
+## 求朝玩家移动的路径（offset 数组形式，最多 max_steps 步）。
 ##
-## ⚠️ 不能直接 path_to(player.anchor) —— 那一格被玩家占着，
-##    can_place 会正确地拒绝，导致寻路永远返回空、敌人永远 SLEEP(unreachable)。
-##    正解：以玩家【相邻格】为目标，取其中可达且总代价最小者。
-static func _step_towards(state, enemy: Unit, player: Unit) -> Array:
-	var goals := player.adjacent_cells()
-	# 确定性：按 (row, col) 排序
-	goals.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
-		var oa := HexCoord.cube_to_offset(a)
-		var ob := HexCoord.cube_to_offset(b)
-		if oa.y != ob.y:
-			return oa.y < ob.y
-		return oa.x < ob.x
-	)
-	var best_path: Array = []
-	var best_len := 1 << 30
-	for g in goals:
-		if not state.grid.is_walkable(g):
-			continue
-		var p := HexPathfinder.path_to(state.grid, enemy, g, -1, 99, state)
-		if p.is_empty():
-			continue
-		if p.size() < best_len:
-			best_len = p.size()
-			best_path = p
-	if best_path.is_empty():
+## ⚠️⚠️ 这个函数曾有两个 bug，都是实测才发现的，改前务必读完：
+##
+## 【Bug A：把 target_anchor 当成"贴身位置"】
+##   旧写法 `path_to(grid, enemy, player.adjacent_cells()[i])` 是在问
+##   「能不能把我的【锚点】放到玩家的邻格上」。
+##   对 S 体型（footprint = 1 格）"锚点在邻格" ⟺ "身体贴着玩家"，语义偶然等价。
+##   对 M/L 体型则两重失败：
+##     ① 锚点紧贴玩家时，3/6 格身体必然与玩家重叠或撞墙 → can_place 失败
+##     ② 即便成功，L 的锚点是三角形【尖端】、身体向后铺 2 格
+##        → 质心离玩家 2–3 格，而攻击门槛是 dist <= 1，永远不触发
+##   实测：narrow_pass 下 L 体型 Boss `SLEEP(unreachable)` 100%，直到 50 回合超时。
+##
+##   ✓ 正解：直接在 (anchor, facing) 状态图上搜索，筛出真正满足
+##     `distance_to_unit(player) <= 1` 的状态 —— 也就是"身体贴到玩家"，
+##     而不是"锚点落在某格"。HexPathfinder.reachable() 已返回全部 294 个状态。
+##
+## 【Bug B：每回合只走 1 格】
+##   旧写法 `return best_path[0]` 只取第一步，而玩家一回合能走 7 格
+##   （移动2 + 疾风步2 + 冲撞3）→ 7:1 速度差 → 玩家可以无限风筝。
+##   实测：enc_02 理论输出 17 点/回合，实际玩家掉 0 血 —— 敌人根本没追上。
+##   ✓ 正解：按 AGI 给出每回合移动力，一次走多步。
+static func _path_towards(state, enemy: Unit, player: Unit, max_steps: int) -> Array:
+	var reach: Dictionary = HexPathfinder.reachable(state.grid, enemy, max_steps, state)
+
+	# 在可达状态里找"能贴到玩家"的，取 cost 最小；同 cost 用 state_id 保证确定性
+	var best_sid := -1
+	var best_cost := 1 << 30
+	var best_dist := 1 << 30
+	var ids: Array = reach.keys()
+	ids.sort()
+	for sid in ids:
+		var e: Dictionary = reach[sid]
+		var anchor: Vector3i = e["anchor"]
+		var facing: int = e["facing"]
+		# 用该状态下的实际占格算与玩家的距离（这才是"贴身"的正确判据）
+		var d := 1 << 30
+		for c in HexFootprint.cells(anchor, enemy.footprint(), facing):
+			for pc in player.cells():
+				d = mini(d, HexCoord.distance(c, pc))
+		var cost: int = e["cost"]
+		# 优先"更贴近"，其次"代价更小"
+		if d < best_dist or (d == best_dist and cost < best_cost):
+			best_dist = d
+			best_cost = cost
+			best_sid = sid
+
+	if best_sid < 0:
 		return []
-	return best_path[0]
+	var target: Dictionary = reach[best_sid]
+	# 已经在最佳位置（这一步预算内贴不了更近）→ 不需要移动
+	if target["anchor"] == enemy.anchor and target["facing"] == enemy.facing:
+		return []
+	return HexPathfinder.path_to(
+		state.grid, enemy, target["anchor"], target["facing"], max_steps, state)
+
+
+## 移动路径的统一出口：先尝试贴身，贴不到就兜底逼近。
+## 四个 decide 分支都走这里，保证【永远不产生僵局】。
+static func _move_path(state, enemy: Unit, player: Unit, budget: int) -> Array:
+	var p := _path_towards(state, enemy, player, budget)
+	if not p.is_empty():
+		return p
+	return _fallback_approach(state, enemy, player, budget)
+
+
+## 走不到玩家身边时的兜底：至少朝玩家方向挪，别站着不动。
+##
+## ⚠️ 为什么需要这个：地形可能把敌人和玩家【永久隔开】。
+##   实测 narrow_pass + 攻城虫(L)：2 格门洞放得下它，但它跨不过 row 4
+##   （这是体型闸门的正确行为，见 verify_pathfinding.gd 的三级门宽表）。
+##   若此时返回 SLEEP，敌人会站到 50 回合超时 —— 战斗永远打不完。
+##   兜底策略：在可达范围内选"离玩家最近"的位置，制造压迫感而非僵局。
+##   真正的解法是关卡配置层（§9.7 模板校验器应校验"Boss 可达玩家"），
+##   但 AI 侧也不该产生僵局。
+static func _fallback_approach(state, enemy: Unit, player: Unit, max_steps: int) -> Array:
+	var reach: Dictionary = HexPathfinder.reachable(state.grid, enemy, max_steps, state)
+	var best_sid := -1
+	var best_key := Vector2i(1 << 30, 1 << 30)
+	var ids: Array = reach.keys()
+	ids.sort()
+	for sid in ids:
+		var e: Dictionary = reach[sid]
+		if e["anchor"] == enemy.anchor and e["facing"] == enemy.facing:
+			continue
+		# 用锚点到玩家锚点的直线距离排序（够用且确定）
+		var d := HexCoord.distance(e["anchor"], player.anchor)
+		var key := Vector2i(d, e["cost"])
+		if key.x < best_key.x or (key.x == best_key.x and key.y < best_key.y):
+			best_key = key
+			best_sid = sid
+	if best_sid < 0:
+		return []
+	var t: Dictionary = reach[best_sid]
+	return HexPathfinder.path_to(state.grid, enemy, t["anchor"], t["facing"], max_steps, state)
+
+
+## 敌人每回合的移动力。AGI 越高走越多（§4.3：AGI 的次要作用之一是移动）。
+## 基础 2 格，每 K_AGI_PER_STEP 点 AGI +1，上限 4 —— 让敌人追得上但不至于秒近身。
+static func move_budget(enemy: Unit) -> int:
+	return clampi(2 + enemy.agi / K.K_AGI_PER_STEP, 2, 4)
+
+
+## 兼容旧调用：只要第一步
+static func _step_towards(state, enemy: Unit, player: Unit) -> Array:
+	var p := _path_towards(state, enemy, player, move_budget(enemy))
+	if p.is_empty():
+		return []
+	return p[0]
 
 
 ## 远程风筝：太近则后退，射程内则攻击
@@ -84,10 +215,10 @@ static func _decide_ranged(state, enemy: Unit, player: Unit, dist: int) -> Dicti
 	if dist <= 3 and _has_los(state, enemy, player):
 		return _make_attack(state, enemy, player)
 	# 靠近到射程内
-	var step := _step_towards(state, enemy, player)
-	if step.is_empty():
+	var path := _move_path(state, enemy, player, move_budget(enemy))
+	if path.is_empty():
 		return {"kind": int(GameEnums.IntentKind.SLEEP), "reason": "unreachable"}
-	return {"kind": int(GameEnums.IntentKind.MOVE), "path": [step],
+	return {"kind": int(GameEnums.IntentKind.MOVE), "path": path,
 			"facing": _facing_towards(enemy.anchor, player.anchor)}
 
 
@@ -107,13 +238,13 @@ static func _decide_blocker(state, enemy: Unit, player: Unit, dist: int) -> Dict
 			cells.append([o.x, o.y])
 		d["cells"] = cells
 		return d
-	# 逼近（比近战慢：只在距离 >2 时才移动，保留"守住阵地"的质感）
-	var step := _step_towards(state, enemy, player)
-	if step.is_empty():
+	# 逼近。BLOCKER 移动力比近战低 1（保留"守住阵地"的质感，但不至于永不参战）
+	var path := _move_path(state, enemy, player, maxi(1, move_budget(enemy) - 1))
+	if path.is_empty():
 		return {"kind": int(GameEnums.IntentKind.SLEEP), "reason": "unreachable"}
 	return {
 		"kind": int(GameEnums.IntentKind.MOVE),
-		"path": [step],
+		"path": path,
 		"facing": _facing_towards(enemy.anchor, player.anchor),
 	}
 
@@ -136,18 +267,59 @@ static func _make_attack(state, enemy: Unit, player: Unit) -> Dictionary:
 		"facing": _facing_towards(enemy.anchor, player.anchor),
 	}
 
-	if enemy.intent_targeting == GameEnums.IntentTargeting.FIXED_TILE:
-		# ⚠️ 冻结【格子】——玩家走开就打空（可躲）
-		var cells: Array = []
-		for c in player.cells():
-			var o := HexCoord.cube_to_offset(c)
-			cells.append([o.x, o.y])
-		d["cells"] = cells
-		d["dodgeable"] = true
-	else:
-		# 冻结【单位 id】——跟着玩家走（躲不掉）
+	# ⚠️ 「可躲」的门槛设计（这是"硬但公平"的核心平衡点，改前读完）：
+	#
+	#   §8.7 原文：「近战敌人 = 打空（可被走位躲开）」，但也允许
+	#   「按明示规则重定向 —— 规则必须固定且写在敌人图鉴里」。
+	#
+	#   纯粹锁定玩家当前占格的话，玩家打一张位移卡就 100% 免疫。
+	#   实测：骑士有 3 张位移卡（移动/疾风步/冲撞），每回合都能躲 → 全程 0 掉血。
+	#   §8.7 的设计意图是「走位是一种有效应对」，不是「走位无条件免疫」。
+	#
+	#   所以采用【明示的两段规则】：
+	#     · 贴身（dist <= 1）的近战 → 转为 TRACK（咬住了，躲不掉）
+	#     · 远处扑击 → FIXED_TILE，锁定玩家占格 + 朝向侧的相邻格（挥击有范围）
+	#   玩家的应对从"随便走一步"变成"要么走远、要么先解决贴身的敌人"。
+	var melee_locked := enemy.distance_to_unit(player) <= 1 \
+			and enemy.intent_targeting == GameEnums.IntentTargeting.FIXED_TILE
+
+	if enemy.intent_targeting == GameEnums.IntentTargeting.TRACK_TARGET or melee_locked:
+		# 追踪：冻结【单位 id】，跟着玩家走
 		d["target_unit"] = player.id
 		d["dodgeable"] = false
+		if melee_locked:
+			d["lock_reason"] = "已被咬住"
+		return d
+
+	# 打空型：冻结【格子】，玩家走出范围即落空
+	var cells: Array = []
+	var seen := {}
+	for c in player.cells():
+		var o := HexCoord.cube_to_offset(c)
+		var key := "%d,%d" % [o.x, o.y]
+		if not seen.has(key):
+			seen[key] = true
+			cells.append([o.x, o.y])
+	# 朝向玩家的那一侧展开：挥击覆盖 3 个方向
+	var toward := _facing_towards(enemy.anchor, player.anchor)
+	var side_dirs := [
+		HexCoord.facing_dir(toward),
+		HexCoord.facing_dir(posmod(toward + 1, 6)),
+		HexCoord.facing_dir(posmod(toward - 1, 6)),
+	]
+	for pc in player.cells():
+		for sd in side_dirs:
+			var n: Vector3i = pc + sd
+			if not state.grid.in_bounds(n):
+				continue
+			var o2 := HexCoord.cube_to_offset(n)
+			var key2 := "%d,%d" % [o2.x, o2.y]
+			if seen.has(key2):
+				continue
+			seen[key2] = true
+			cells.append([o2.x, o2.y])
+	d["cells"] = cells
+	d["dodgeable"] = true
 	return d
 
 
