@@ -150,10 +150,21 @@ static func _path_towards(state, enemy: Unit, player: Unit, max_steps: int) -> A
 
 ## 移动路径的统一出口：先尝试贴身，贴不到就兜底逼近。
 ## 四个 decide 分支都走这里，保证【永远不产生僵局】。
+##
+## ⚠️ budget 内贴不到玩家时，不能只在 budget 范围里找"最近位置" ——
+##   那会把单位锁在【局部最优】。实测：石傀(M) 卡在 (1,6) 不动 6 个回合，
+##   因为它 3 格移动力内的所有位置都不比原地更近（门在 row 4，玩家在 row 3，
+##   而穿门需要先绕到门口，前几步反而"变远"）。
+##   正解：兜底时用【完整寻路】（budget=99）算出通往玩家的整条路，
+##   然后只走 budget 步 —— 这样它会朝正确方向前进，即使前几步看起来变远。
 static func _move_path(state, enemy: Unit, player: Unit, budget: int) -> Array:
 	var p := _path_towards(state, enemy, player, budget)
 	if not p.is_empty():
 		return p
+	# 用不限预算的寻路找"真正通往玩家"的路，再截取 budget 步
+	var full := _path_towards(state, enemy, player, 99)
+	if not full.is_empty():
+		return full.slice(0, mini(budget, full.size()))
 	return _fallback_approach(state, enemy, player, budget)
 
 
@@ -280,6 +291,9 @@ static func _make_attack(state, enemy: Unit, player: Unit) -> Dictionary:
 	#     · 贴身（dist <= 1）的近战 → 转为 TRACK（咬住了，躲不掉）
 	#     · 远处扑击 → FIXED_TILE，锁定玩家占格 + 朝向侧的相邻格（挥击有范围）
 	#   玩家的应对从"随便走一步"变成"要么走远、要么先解决贴身的敌人"。
+	#
+	#   ⚠️ 判据用 `<= 1` 而不是更大的值：贴身才算"咬住"。
+	#   若把 2 格也算追踪，远程与近战的区分就没了，玩家失去"拉开距离"这个应对。
 	var melee_locked := enemy.distance_to_unit(player) <= 1 \
 			and enemy.intent_targeting == GameEnums.IntentTargeting.FIXED_TILE
 

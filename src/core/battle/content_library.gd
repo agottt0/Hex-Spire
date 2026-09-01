@@ -38,9 +38,14 @@ static func giant() -> HeroData:
 	h.id = "giant"
 	h.display_name = "巨人"
 	h.size_class = GameEnums.SizeClass.M      # ⭐ D8 在玩家侧的载体
-	h.base_hp = 110
+	# ⚠️ 策划案 §4.2 写的是【生命↑↑↑】（三箭头 = 最高等级）、敏捷↓↓。
+	#   我原先只给 110 HP（比骑士 80 高 37%），配上 AGI 3 躲不掉攻击
+	#   → 实测 vs Boss 只有 13% 胜率、掉血 109。
+	#   HP 拉到 150 才符合"生命↑↑↑"的设计定位：
+	#   骑士靠位移+格挡活，巨人靠血条厚 + 站着不动硬吃。
+	h.base_hp = 150
 	h.base_atk = 12
-	h.base_def = 6
+	h.base_def = 8      # DEF 也上调：巨人该比骑士更耐打，而非更脆
 	h.base_agi = 3
 	h.base_luk = 4
 	h.base_crit = 5
@@ -197,13 +202,35 @@ static func card_by_id(cid: String) -> CardData:
 
 
 ## 构造某英雄的初始卡组（11 张 —— §7.4.4 的最坏情形，R1' 测得准）
+##
+## ⚠️ 卡组按英雄定位分化（§4.2）。原先两个英雄用同一套 8 张通用卡，
+##   结果骑士拿到 3 张位移卡（移动/疾风步/冲撞）→ 在开阔地无限风筝、全程 0 掉血。
+##   但策划案把「风筝型」和「每回合首次移动免费」明确分配给【弓箭手】，
+##   骑士的定位是「站在原地，让敌人自己撞死」的坦克。
+##   所以骑士只保留 1 张额外位移卡，多给守备/反击；
+##   巨人保留位移（它需要靠位移摆好堵路姿态）但多给控场。
 static func starting_deck(hero: HeroData) -> Array[CardInstance]:
 	var ids: Array[String] = []
 	for cid in hero.cornerstone_card_ids:
 		ids.append(cid)
-	for cid in ["heavy_strike", "multi_stab", "pierce_javelin", "iron_wall",
-				"charge", "ignite", "quick_plan", "gust_step"]:
+
+	var extras: Array[String] = []
+	match hero.id:
+		"knight":
+			# 坦克：厚守备 + 近战输出，位移只有基石卡《移动》+《冲撞》
+			extras = ["heavy_strike", "multi_stab", "shield_bash",
+					  "iron_wall", "iron_wall", "charge", "ignite", "quick_plan"]
+		"giant":
+			# 地形型：范围 + 推拉 + 控场
+			extras = ["heavy_strike", "multi_stab", "pierce_javelin",
+					  "iron_wall", "charge", "ignite", "quick_plan", "gust_step"]
+		_:
+			extras = ["heavy_strike", "multi_stab", "pierce_javelin", "iron_wall",
+					  "charge", "ignite", "quick_plan", "gust_step"]
+
+	for cid in extras:
 		ids.append(cid)
+
 	var out: Array[CardInstance] = []
 	for cid in ids:
 		var cd := card_by_id(cid)
@@ -343,16 +370,28 @@ static func all_layout_ids() -> Array[String]:
 # ══════════════════════════════════════════════════════ 怪物组
 
 ## 返回 [{enemy_id, count}]
+##
+## ⚠️ 怪物组的规模曾太小：enc_01 只有 1 只狗（24 HP），玩家一回合就清完，
+##   掉血率 0% —— 战斗还没开始就结束了，谈不上博弈。
+##   §9.6 的设计里普通战斗房是「1 个怪物组」，但组内数量应该让战斗
+##   持续 3–5 回合（§4.1 单场 2–5 分钟的前提）。
+##   现在按"教学 → 标准 → 精英 → Boss"分四档递进。
 static func encounter(eid: String) -> Array:
 	match eid:
-		"enc_01": return [{"enemy_id": "biting_hound", "count": 1}]
-		"enc_02": return [{"enemy_id": "biting_hound", "count": 2},
-						  {"enemy_id": "stone_slinger", "count": 1}]
+		# 教学局：2 只狗，让玩家学会"躲不掉就得挨打"
+		"enc_01": return [{"enemy_id": "biting_hound", "count": 2}]
+		# 标准局：近战 + 远程混编，逼玩家分配注意力
+		"enc_02": return [{"enemy_id": "biting_hound", "count": 3},
+						  {"enemy_id": "stone_slinger", "count": 2}]
+		# 精英局：M 体型堵路 + 杂兵骚扰
 		"enc_03": return [{"enemy_id": "stone_golem", "count": 1},
-						  {"enemy_id": "biting_hound", "count": 2}]
-		"enc_04": return [{"enemy_id": "siege_worm", "count": 1},
+						  {"enemy_id": "biting_hound", "count": 3},
 						  {"enemy_id": "stone_slinger", "count": 1}]
-		_: return [{"enemy_id": "biting_hound", "count": 1}]
+		# Boss 局：L 体型 + 远程支援
+		"enc_04": return [{"enemy_id": "siege_worm", "count": 1},
+						  {"enemy_id": "stone_slinger", "count": 2},
+						  {"enemy_id": "biting_hound", "count": 2}]
+		_: return [{"enemy_id": "biting_hound", "count": 2}]
 
 
 static func all_encounter_ids() -> Array[String]:
