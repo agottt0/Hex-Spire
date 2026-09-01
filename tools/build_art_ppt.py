@@ -166,7 +166,7 @@ def pic(s, name, l, t, w, h, darken=None, tint=None, fade_left=None, fade_bottom
     return s.shapes.add_picture(fp, int(l), int(t), int(w), int(h))
 
 
-def head(s, title, kicker=None, sub=None, subw=None):
+def head(s, title, kicker=None, sub=None, subw=None, footer=True):
     _page["n"] += 1
     if kicker:
         txt(s, ML, Inches(0.40), Inches(9), Inches(0.26), kicker,
@@ -179,8 +179,10 @@ def head(s, title, kicker=None, sub=None, subw=None):
             size=13, color=MUTED, spacing=1.35)
     txt(s, Inches(12.0), Inches(6.98), Inches(0.62), Inches(0.24), "%02d" % _page["n"],
         size=11, color=DIM, align=PP_ALIGN.RIGHT, spacing=1.0)
-    txt(s, ML, Inches(6.98), Inches(6), Inches(0.24), "《（暂名）Hex Spire》 美术高概念 v0.1",
-        size=9.5, color=RGBColor(0x39, 0x40, 0x4E), spacing=1.0)
+    if footer:
+        txt(s, ML, Inches(6.98), Inches(6), Inches(0.24),
+            "《（暂名）Hex Spire》 美术高概念 v0.1",
+            size=9.5, color=RGBColor(0x39, 0x40, 0x4E), spacing=1.0)
     return s
 
 
@@ -212,12 +214,13 @@ def table(s, l, t, w, headers, rows, colw, rowh=Inches(0.36), hh=Inches(0.33),
 
 def swatch(s, l, t, w, h, color, name, hexs, note=None):
     rect(s, l, t, w, h, fill=color, line=RGBColor(0x2C, 0x34, 0x42))
-    txt(s, l, t + h + Inches(0.07), w, Inches(0.2), name, size=10.5, bold=True,
-        color=ASH, spacing=1.0)
-    txt(s, l, t + h + Inches(0.26), w, Inches(0.2), hexs, size=9.5, color=MUTED,
-        font=MONO, spacing=1.0)
+    txt(s, l, t + h + Inches(0.06), w + Inches(0.08), Inches(0.2), name, size=8.5,
+        bold=True, color=ASH, spacing=1.0)
+    txt(s, l, t + h + Inches(0.23), w + Inches(0.08), Inches(0.2), hexs, size=8,
+        color=MUTED, font=MONO, spacing=1.0)
     if note:
-        txt(s, l, t + h + Inches(0.44), w, Inches(0.2), note, size=9.5, color=DIM, spacing=1.0)
+        txt(s, l, t + h + Inches(0.39), w + Inches(0.08), Inches(0.2), note,
+            size=8, color=DIM, spacing=1.0)
 
 
 def hexa(s, cx, cy, size, fill=None, line=None, lw=1.25):
@@ -250,12 +253,14 @@ def hexa(s, cx, cy, size, fill=None, line=None, lw=1.25):
 
 
 def bullets(s, l, t, w, items, size=13, gap=0.33, color=ASH, marker="—",
-            mcolor=VERM, spacing=1.28):
+            mcolor=VERM, spacing=1.28, numbered=False, mw=0.3):
+    """marker: literal string for every item; numbered=True -> 1. 2. 3. ..."""
     y = t
-    for it in items:
-        txt(s, l, y, Inches(0.24), Inches(0.26), marker, size=size, color=mcolor,
+    for i, it in enumerate(items):
+        m = ("%d." % (i + 1)) if numbered else marker
+        txt(s, l, y, Inches(mw), Inches(0.26), m, size=size, color=mcolor,
             bold=True, spacing=1.0)
-        txt(s, l + Inches(0.3), y, w - Inches(0.3), Inches(0.3), it, size=size,
+        txt(s, l + Inches(mw), y, w - Inches(mw), Inches(0.3), it, size=size,
             color=color, spacing=spacing)
         y += Inches(gap)
     return y
@@ -425,20 +430,21 @@ head(s, "核心转译公式：怪谈是怎么长在城市里的", kicker="02 · 
      sub="所有场景与怪物设计都走同一个公式。这是最需要被外包和 AI 生成理解的一节。")
 
 fy = Inches(2.12)
-rect(s, ML, fy, CW, Inches(0.95), fill=PANEL2)
-parts = [("【传统母题】", LILAC, Inches(2.55)), ("【现代城市载体】", FN_BLOCK, Inches(3.1)),
-         ("【一处日常逻辑错误】", FN_DANGER, Inches(3.7))]
-x = ML + Inches(0.3)
-txt(s, x, fy + Inches(0.3), Inches(1.5), Inches(0.4), "怪谈元素 =",
-    size=16, bold=True, color=ASH, spacing=1.0)
-x += Inches(1.25)
+FW = Inches(8.62)          # formula band stops short of the right-hand panel
+rect(s, ML, fy, FW, Inches(0.95), fill=PANEL2)
+parts = [("【传统母题】", LILAC, Inches(1.72)), ("【现代城市载体】", FN_BLOCK, Inches(2.08)),
+         ("【一处日常逻辑错误】", FN_DANGER, Inches(2.48))]
+x = ML + Inches(0.24)
+txt(s, x, fy + Inches(0.3), Inches(1.2), Inches(0.4), "怪谈元素 =",
+    size=14, bold=True, color=ASH, spacing=1.0)
+x += Inches(1.06)
 for i, (p, c, wdt) in enumerate(parts):
     if i:
-        txt(s, x, fy + Inches(0.3), Inches(0.35), Inches(0.4), "×", size=17,
+        txt(s, x, fy + Inches(0.3), Inches(0.28), Inches(0.4), "×", size=15,
             bold=True, color=DIM, align=PP_ALIGN.CENTER, spacing=1.0)
-        x += Inches(0.38)
+        x += Inches(0.3)
     rect(s, x, fy + Inches(0.24), wdt, Inches(0.48), fill=None, line=c, lw=1.1)
-    txt(s, x, fy + Inches(0.35), wdt, Inches(0.3), p, size=13.5, bold=True,
+    txt(s, x, fy + Inches(0.36), wdt, Inches(0.3), p, size=11.5, bold=True,
         color=c, align=PP_ALIGN.CENTER, spacing=1.0)
     x += wdt
 
@@ -470,7 +476,7 @@ bullets(s, rx + Inches(0.24), Inches(2.74), Inches(2.62), [
     "一个房间最多用 3 条。用满 6 条不是恐怖，是杂货铺",
     "同一条在同一章内最多复用 2 次，第三次必须换载体",
     "每条都要能“遮住即消失”—— 异常必须是可移除的图层",
-], size=11.5, gap=0.72, spacing=1.3, marker="1", mcolor=FN_GOLD)
+], size=11.5, gap=0.72, spacing=1.3, numbered=True, mcolor=FN_GOLD, mw=0.26)
 rect(s, rx + Inches(0.24), Inches(4.98), Inches(2.6), Pt(0.7), fill=HAIR)
 txt(s, rx + Inches(0.24), Inches(5.16), Inches(2.62), Inches(1.4),
     [[("第 3 点是省钱的关键：", {"color": FN_ALLY, "bold": True})],
@@ -485,11 +491,11 @@ head(s, "全局色板：从 L0 实测采样，非估值", kicker="03 · 色彩",
 sw = [(INK, "墨夜蓝 INK", "#0B0C17", "35–45%"), (NIGHT, "夜青 NIGHT", "#131A23", "15–20%"),
       (STEEL, "钢灰蓝 STEEL", "#2D3949", "15%"), (INDIGO, "靛紫 INDIGO", "#3D2B45", "8%"),
       (LILAC, "幽紫 LILAC", "#6C4464", "5%"), (ASH, "香灰白 ASH", "#EEE7DD", "4%"),
-      (VERM, "朱红 VERMILION", "#6D0409", "≤3%"), (LANTERN, "灯笼橙红 LANTERN", "#8A2B1C", "≤3%")]
+      (VERM, "朱红 VERM", "#6D0409", "≤3%"), (LANTERN, "灯笼橙红", "#8A2B1C", "≤3%")]
+SWP = Inches(1.078)                       # pitch: 8 swatches inside 8.62in
 for i, (c, n, hx, pc) in enumerate(sw):
-    l = ML + i * Inches(1.487)
-    swatch(s, l, Inches(2.15), Inches(1.36), Inches(0.92), c, n, hx, pc)
-rect(s, ML + 6 * Inches(1.487), Inches(2.15), Inches(1.36), Inches(0.92),
+    swatch(s, ML + i * SWP, Inches(2.15), Inches(0.98), Inches(0.78), c, n, hx, pc)
+rect(s, ML + 6 * SWP, Inches(2.15), Inches(0.98), Inches(0.78),
      fill=None, line=FN_DANGER, lw=1.75)
 
 txt(s, ML, Inches(3.86), Inches(8.5), Inches(0.3), "分章色板：换色相，不换明度结构",
@@ -511,10 +517,10 @@ for i, (nm, hue, light, one, hexes) in enumerate(chs):
         c = RGBColor(int(hx[1:3], 16), int(hx[3:5], 16), int(hx[5:7], 16))
         rect(s, ML + Inches(2.6) + j * Inches(0.44), t + Inches(0.17),
              Inches(0.4), Inches(0.4), fill=c, line=RGBColor(0x2C, 0x34, 0x42))
-    txt(s, ML + Inches(4.95), t + Inches(0.11), Inches(2.1), Inches(0.5), light,
-        size=10.5, color=MUTED, spacing=1.2)
-    txt(s, ML + Inches(7.05), t + Inches(0.24), Inches(1.5), Inches(0.3), one,
-        size=10.5, color=FN_GOLD, spacing=1.15)
+    txt(s, ML + Inches(4.9), t + Inches(0.1), Inches(1.95), Inches(0.56), light,
+        size=9.5, color=MUTED, spacing=1.2)
+    txt(s, ML + Inches(6.95), t + Inches(0.1), Inches(1.55), Inches(0.56), one,
+        size=9.5, color=FN_GOLD, spacing=1.2)
 
 rx = Inches(9.55)
 rect(s, rx, Inches(2.15), Inches(3.06), Inches(2.32), fill=RGBColor(0x1E, 0x0A, 0x0C))
@@ -621,20 +627,20 @@ txt(s, Inches(6.3), Inches(0.66), Inches(6.3), Inches(0.4),
 txt(s, Inches(12.0), Inches(6.98), Inches(0.62), Inches(0.24), "%02d" % _page["n"],
     size=11, color=DIM, align=PP_ALIGN.RIGHT, spacing=1.0)
 
-txt(s, ML, Inches(4.78), Inches(5.6), Inches(0.4),
+txt(s, ML, Inches(4.74), Inches(5.9), Inches(0.4),
     [[("一句话美术目标：", {"color": FN_GOLD, "bold": True}),
       ("拍一张真实的凌晨三点地铁站照片，然后只改三样东西。", {"color": ASH})]],
-    size=13, spacing=1.25)
-txt(s, ML, Inches(5.28), Inches(5.7), Inches(0.3), "P0 异常元素（每战场取 2–3 条，至少 1 条 P0）",
-    size=11.5, bold=True, color=MUTED, spacing=1.0)
+    size=12, spacing=1.25)
+txt(s, ML, Inches(5.16), Inches(5.9), Inches(0.3), "P0 异常元素（每战场取 2–3 条，至少 1 条 P0）",
+    size=11, bold=True, color=MUTED, spacing=1.0)
 rows = [["站名牌", "站名逐层变成生僻字，终章层空白；拼音始终正常"],
         ["线路图", "线是闭环，没有终点站；末端站点朱红圆点正在渗色"],
         ["地面安全线", "黄线变朱红，线内侧是旧式青砖（两个年代的地面拼在一起）"],
         ["应急指示灯", "所有箭头指同一方向，且指向隧道"],
         ["乘客", "无脸；影子方向与光源不符；低头看灭屏的手机"]]
-y = Inches(5.62)
+y = Inches(5.5)
 for i, (a, b) in enumerate(rows):
-    t = y + i * Inches(0.3)
+    t = y + i * Inches(0.29)
     txt(s, ML, t, Inches(1.3), Inches(0.26), a, size=11, bold=True, color=LILAC, spacing=1.0)
     txt(s, ML + Inches(1.34), t, Inches(4.4), Inches(0.26), b, size=11, color=MUTED, spacing=1.0)
 
@@ -701,21 +707,21 @@ rect(s, rx, Inches(4.96), Inches(2.5), Inches(1.9), fill=RGBColor(0x1A, 0x0E, 0x
 rect(s, rx, Inches(4.96), Inches(2.5), Pt(2.5), fill=FN_GOLD)
 txt(s, rx + Inches(0.2), Inches(5.14), Inches(2.2), Inches(0.3), "复用红利",
     size=11.5, bold=True, color=FN_GOLD, spacing=1.0)
-txt(s, rx + Inches(0.2), Inches(5.46), Inches(2.14), Inches(1.2),
+txt(s, rx + Inches(0.2), Inches(5.44), Inches(2.14), Inches(1.2),
     [[("货架 · 模特 · 桌椅 · 吊灯笼", {"color": ASH, "bold": True})],
-     [("四类 prop 组合出全部店铺。店铺的区别靠贴图与 prop 组合，不靠新建资产。", {})]],
-    size=10.5, color=MUTED, spacing=1.32)
+     [("四类 prop 组合出全部店铺。区别靠贴图与 prop 组合，不靠新建资产。", {})]],
+    size=10, color=MUTED, spacing=1.3)
 
 rx2 = Inches(9.85)
 rect(s, rx2, Inches(4.96), Inches(2.76), Inches(1.9), fill=RGBColor(0x1A, 0x0E, 0x10))
 rect(s, rx2, Inches(4.96), Inches(2.76), Pt(2.5), fill=LANTERN)
 txt(s, rx2 + Inches(0.2), Inches(5.14), Inches(2.4), Inches(0.3), "空间与机制",
     size=11.5, bold=True, color=LANTERN, spacing=1.0)
-txt(s, rx2 + Inches(0.2), Inches(5.46), Inches(2.4), Inches(1.3),
+txt(s, rx2 + Inches(0.2), Inches(5.44), Inches(2.4), Inches(1.3),
     [[("中庭", {"color": ASH, "bold": True}), (" 6 格 Boss 主场、纵深最强", {})],
-     [("扶梯 / 天井边缘", {"color": FN_GOLD, "bold": True}), (" ⭐ 推拉机制的舞台：把敌人推下天井", {})],
+     [("扶梯 / 天井边缘", {"color": FN_GOLD, "bold": True}), (" ⭐ 推拉机制的舞台", {})],
      [("后场通道", {"color": ASH, "bold": True}), (" 冷光、无装饰 —— “后台没有伪装”", {})]],
-    size=10.5, color=MUTED, spacing=1.3)
+    size=10, color=MUTED, spacing=1.28)
 
 # ================================================= 10 chapter 3
 s = slide(RGBColor(0x05, 0x0D, 0x13))
@@ -733,8 +739,8 @@ for i, (a, b) in enumerate(grid):
     rect(s, l, t, Pt(2.5), Inches(0.76), fill=RGBColor(0x88, 0xA4, 0xB4))
     txt(s, l + Inches(0.24), t + Inches(0.1), Inches(0.9), Inches(0.3), a,
         size=13, bold=True, color=RGBColor(0x88, 0xA4, 0xB4), spacing=1.0)
-    txt(s, l + Inches(1.2), t + Inches(0.1), Inches(4.3), Inches(0.6), b,
-        size=11.5, color=MUTED, spacing=1.3)
+    txt(s, l + Inches(1.2), t + Inches(0.09), Inches(4.28), Inches(0.62), b,
+        size=10.5, color=MUTED, spacing=1.28)
 
 txt(s, ML, Inches(4.22), Inches(11.6), Inches(0.3), "关键视觉元素：全部是文字与数字的错误",
     size=12.5, bold=True, color=FN_GOLD, spacing=1.0)
@@ -760,8 +766,8 @@ txt(s, ML + Inches(0.24), Inches(6.36), Inches(11.4), Inches(0.3),
 
 # ================================================= 11 four classes
 s = slide()
-head(s, "四职业：现代身份 × 传统力量", kicker="05 · 角色",
-     sub="每个角色都必须一眼看出“是现代人”。传统力量必须表现为“外挂”而非“自带”—— 符纸是贴上去的、法器是拿在手里的、印记是画上去的。")
+head(s, "四职业：现代身份 × 传统力量", kicker="05 · 角色", footer=False,
+     sub="每个角色都必须一眼看出“是现代人”。传统力量必须表现为“外挂”而非“自带”—— 符纸是贴上去的、法器是拿在手里的。")
 pic(s, "角色.png", ML, Inches(2.08), Inches(11.89), Inches(2.62), darken=0.06,
     crop_top=(0.02, 0.62))
 rect(s, ML, Inches(2.08), Inches(11.89), Inches(2.62), fill=None, line=HAIR, lw=1)
@@ -790,8 +796,8 @@ for i, (nm, proto, ident, ratio, c, gear) in enumerate(cls):
     txt(s, l + Inches(0.2), t + Inches(1.26), Inches(2.45), Inches(0.5), gear,
         size=9.5, color=MUTED, spacing=1.25)
 
-rect(s, ML, Inches(6.9), CW, Pt(0.7), fill=HAIR)
-txt(s, ML, Inches(6.98), Inches(11.6), Inches(0.3),
+rect(s, ML, Inches(6.86), CW, Pt(0.7), fill=HAIR)
+txt(s, ML, Inches(6.94), Inches(11.0), Inches(0.3),
     [[("妖化者是唯一允许使用高饱和红的角色", {"color": FN_DANGER, "bold": True}),
       ("，因为他本身就是“危险”。这是有意设计：玩家操作他时会持续感到不安。也是唯一 3 格体型的玩家角色 —— 视觉上必须是“身体正在向外蔓延”，不是“一个很胖的人”。", {"color": MUTED})]],
     size=11, spacing=1.0)
@@ -835,18 +841,19 @@ for i, (nm, sil, hgt, must, c, n) in enumerate(sizes):
     txt(s, l + Inches(1.5), Inches(2.44), Inches(2.1), Inches(0.3), "高 " + hgt,
         size=11, color=MUTED, font=MONO, align=PP_ALIGN.RIGHT, spacing=1.0)
     # footprint diagram
-    cx0 = l + Inches(0.55)
-    cy0 = Inches(3.34)
-    hs = Inches(0.42)
+    hs = Inches(0.34)
     coords = {1: [(0, 0)], 3: [(0, 0), (1, 0), (0.5, 1)],
               6: [(0, 0), (1, 0), (2, 0), (0.5, 1), (1.5, 1), (1, 2)]}[n]
+    rows = max(cyi for _, cyi in coords) + 1
+    cx0 = l + Inches(0.46) + hs / 2
+    cy0 = Inches(3.42) - (rows - 1) * hs * 0.866 / 2
     for (cxi, cyi) in coords:
-        hexa(s, cx0 + cxi * hs * 1.0, cy0 + cyi * hs * 0.87, hs, fill=None,
-             line=c, lw=1.5)
-    txt(s, l + Inches(1.9), Inches(2.92), Inches(1.72), Inches(0.6), sil,
-        size=11, color=ASH, spacing=1.28)
-    txt(s, l + Inches(0.24), Inches(4.02), Inches(3.34), Inches(0.5), must,
-        size=11, color=MUTED, spacing=1.28)
+        hexa(s, cx0 + cxi * hs, cy0 + cyi * hs * 0.866, hs, fill=None,
+             line=c, lw=1.4)
+    txt(s, l + Inches(2.0), Inches(2.9), Inches(1.62), Inches(0.72), sil,
+        size=10.5, color=ASH, spacing=1.26)
+    txt(s, l + Inches(0.24), Inches(4.06), Inches(3.34), Inches(0.5), must,
+        size=10.5, color=MUTED, spacing=1.26)
 
 txt(s, ML, Inches(4.9), Inches(5.6), Inches(0.3), "三条不可省略的实现要求（策划案 §13.2）",
     size=12.5, bold=True, color=FN_GOLD, spacing=1.0)
@@ -915,35 +922,37 @@ head(s, "六边形 Tile 技术规格与图层结构", kicker="06 · 战场 · �
      sub="对齐策划案 §14.3。尖顶（pointy-top）· odd-r · y_sort_enabled = true。")
 
 # hex diagram
-cx = Inches(2.35)
-cy = Inches(3.6)
-hs = Inches(1.16)
-for (dx, dy) in [(-1, -1), (0, -1), (-1, 0), (0, 0), (1, 0), (-1, 1), (0, 1)]:
+cx = Inches(2.3)
+cy = Inches(3.45)
+hs = Inches(1.05)
+for (dx, dy) in [(-0.5, -1), (0.5, -1), (-1, 0), (0, 0), (1, 0), (-0.5, 1), (0.5, 1)]:  # odd-r ring
     fill = None
     lc = STEEL
     if (dx, dy) == (0, 0):
         fill = RGBColor(0x0F, 0x2C, 0x2C)
         lc = FN_ALLY
-    hexa(s, cx + dx * hs, cy + dy * hs * 0.87, hs, fill=fill, line=lc, lw=1.4)
-txt(s, cx - Inches(0.58), cy - Inches(0.12), Inches(1.16), Inches(0.3), "128 px",
-    size=10.5, color=FN_ALLY, align=PP_ALIGN.CENTER, font=MONO, spacing=1.0)
-txt(s, ML, Inches(5.1), Inches(3.4), Inches(0.9),
+    hexa(s, cx + dx * (hs - Inches(0.004)), cy + dy * hs * 0.862, hs,
+         fill=fill, line=lc, lw=1.4)
+txt(s, cx - Inches(0.52), cy - Inches(0.1), Inches(1.05), Inches(0.3), "128 px",
+    size=10, color=FN_ALLY, align=PP_ALIGN.CENTER, font=MONO, spacing=1.0)
+txt(s, ML, Inches(4.86), Inches(3.4), Inches(1.0),
     [[("W 128 · H 148 · 行间距 111", {"color": ASH, "bold": True, "font": MONO})],
-     [("安全区 中心 96×96；单位锚点 = tile 底部中心。128×7 ≈ 896 px 战场宽，1920×1080 下留出两侧 UI 空间。", {})]],
-    size=10.5, color=MUTED, spacing=1.3)
+     [("安全区 中心 96×96；单位锚点 = tile 底部中心。", {})],
+     [("128×7 ≈ 896 px 战场宽，1920×1080 下留出两侧 UI 空间。", {})]],
+    size=10, color=MUTED, spacing=1.3)
 
 txt(s, Inches(4.4), Inches(2.15), Inches(3.6), Inches(0.3), "Godot 配置",
     size=12.5, bold=True, color=FN_GOLD, spacing=1.0)
-code = ["tile_shape       = TILE_SHAPE_HEXAGON",
-        "tile_layout      = TILE_LAYOUT_STACKED", "                   # odd-r",
-        "tile_offset_axis = TILE_OFFSET_AXIS_HORIZONTAL", "                   # 尖顶",
-        "y_sort_enabled   = true", "战场 7 × 7 = 49 格"]
+code = ["tile_shape    = TILE_SHAPE_HEXAGON",
+        "tile_layout   = TILE_LAYOUT_STACKED", "                # odd-r",
+        "tile_offset_axis =", "  TILE_OFFSET_AXIS_HORIZONTAL", "                # 尖顶",
+        "y_sort_enabled = true", "战场 7 × 7 = 49 格"]
 rect(s, Inches(4.4), Inches(2.5), Inches(3.55), Inches(2.05), fill=RGBColor(0x08, 0x0B, 0x12),
      line=HAIR, lw=0.75)
 for i, ln in enumerate(code):
-    c = DIM if ln.strip().startswith("#") else (FN_ALLY if i == 6 else MUTED)
-    txt(s, Inches(4.56), Inches(2.62) + i * Inches(0.27), Inches(3.3), Inches(0.24),
-        ln, size=10, color=c, font=MONO, spacing=1.0)
+    c = DIM if ln.strip().startswith("#") else (FN_ALLY if i == len(code) - 1 else MUTED)
+    txt(s, Inches(4.56), Inches(2.6) + i * Inches(0.245), Inches(3.35), Inches(0.24),
+        ln, size=9.5, color=c, font=MONO, spacing=1.0)
 
 txt(s, Inches(4.4), Inches(4.72), Inches(3.6), Inches(0.3), "若采用更高分辨率",
     size=11.5, bold=True, color=FN_DANGER, spacing=1.0)
@@ -968,16 +977,16 @@ for i, (nm, cont, who, c) in enumerate(layers):
     txt(s, Inches(8.5), t + Inches(0.34), Inches(3.9), Inches(0.26), cont,
         size=10.5, color=MUTED, spacing=1.0)
 
-txt(s, ML, Inches(5.9), Inches(7.6), Inches(0.3), "意图预告：可躲 vs 追踪（策划案 §8.7 点名，不可省略）",
+txt(s, ML, Inches(5.98), Inches(7.6), Inches(0.3), "意图预告：可躲 vs 追踪（策划案 §8.7 点名，不可省略）",
     size=12.5, bold=True, color=FN_GOLD, spacing=1.0)
-rect(s, ML, Inches(6.26), Inches(3.6), Inches(0.56), fill=PANEL)
-rect(s, ML, Inches(6.26), Pt(2.5), Inches(0.56), fill=FN_DANGER)
-txt(s, ML + Inches(0.18), Inches(6.34), Inches(3.3), Inches(0.44),
+rect(s, ML, Inches(6.34), Inches(3.6), Inches(0.52), fill=PANEL)
+rect(s, ML, Inches(6.34), Pt(2.5), Inches(0.52), fill=FN_DANGER)
+txt(s, ML + Inches(0.18), Inches(6.42), Inches(3.3), Inches(0.44),
     [[("打击格 实线", {"color": ASH, "bold": True}), (" = 打空地 → 可躲", {"color": MUTED})]],
     size=11, spacing=1.2)
-rect(s, ML + Inches(3.8), Inches(6.26), Inches(3.8), Inches(0.56), fill=PANEL)
-rect(s, ML + Inches(3.8), Inches(6.26), Pt(2.5), Inches(0.56), fill=FN_DANGER)
-txt(s, ML + Inches(3.98), Inches(6.34), Inches(3.5), Inches(0.44),
+rect(s, ML + Inches(3.8), Inches(6.34), Inches(3.8), Inches(0.52), fill=PANEL)
+rect(s, ML + Inches(3.8), Inches(6.34), Pt(2.5), Inches(0.52), fill=FN_DANGER)
+txt(s, ML + Inches(3.98), Inches(6.42), Inches(3.5), Inches(0.44),
     [[("虚线锁定 + 连线到玩家", {"color": ASH, "bold": True}), (" = 追踪 → 躲不掉", {"color": MUTED})]],
     size=11, spacing=1.2)
 
@@ -1015,7 +1024,7 @@ bullets(s, ML, Inches(5.52), Inches(7.4), [
     "档位切换靠后处理 + 贴花组，绝不靠重绘场景。底图一张，贴花三组，参数四档",
     "后处理集中在一个 WorldEnvironment / 全屏 shader，由 RunManager 的腐蚀度值驱动。禁止逐资产做腐蚀版本",
     "切换必须是渐变（≥1.5s），不是跳变。玩家应该“没注意到什么时候变的”",
-], size=11.5, gap=0.42, spacing=1.28, marker="■", mcolor=FN_ALLY)
+], size=11, gap=0.52, spacing=1.26, marker="■", mcolor=FN_ALLY)
 
 rect(s, Inches(8.4), Inches(5.16), Inches(4.2), Inches(1.6), fill=RGBColor(0x1E, 0x0A, 0x0C))
 rect(s, Inches(8.4), Inches(5.16), Inches(4.2), Pt(3), fill=FN_DANGER)
@@ -1135,10 +1144,10 @@ s = slide()
 head(s, "M0 资产清单：目标不是好看，是验证", kicker="08 · 排期",
      sub="对齐策划案 §17 的 M0（技术验证 Vertical Slice，2–3 周）。第一个 demo 纯灰盒 —— 验证“这游戏好玩吗”，不是“好看吗”。")
 
-rows = [["MB-03 可读性 moodboard", "1 张", "完成", "前置于以下所有 UI 工作", ""],
+rows = [["MB-03 可读性板", "1 张", "完成", "前置于以下所有 UI 工作", ""],
         ["六边形 tile", "3 种", "灰盒", "验证 §9.1 尺寸参数与 odd-r 对齐", ""],
         ["高亮层", "4 种", "正式", "验证功能色与 R2", ""],
-        ["单位占位", "1格×2 3格×1 6格×1", "灰盒 + 正式描边", "验证体型可读性（策划案 D8 最大风险）", "⭐"],
+        ["单位占位", "1格×2 3格×1 6格×1", "灰盒+正式", "验证体型可读性（D8 最大风险）", "⭐"],
         ["意图图标", "6 种 + 可躲/追踪", "正式", "§8.3，策划案 §8.7 的核心验证项", "⭐"],
         ["卡牌", "边框 1 + 基石卡 3", "半正式", "验证信息层级与动态数值排版", ""],
         ["符文槽条", "6 槽 + 顺序箭头", "正式", "验证策划案 §6.5「顺序可见」", "⭐"],
@@ -1151,8 +1160,8 @@ for ri, r in enumerate(rows):
 table(s, ML, Inches(2.15), Inches(7.55),
       ["资产", "数量", "精度", "用途", ""],
       rows,
-      [Inches(2.0), Inches(1.42), Inches(1.1), Inches(2.75), Inches(0.28)],
-      rowh=Inches(0.365), fsize=10.5, cell_colors=cc)
+      [Inches(1.85), Inches(1.5), Inches(1.05), Inches(2.87), Inches(0.28)],
+      rowh=Inches(0.38), fsize=10, cell_colors=cc)
 
 rx = Inches(8.55)
 rect(s, rx, Inches(2.15), Inches(4.06), Inches(1.5), fill=RGBColor(0x0A, 0x1F, 0x1F))
@@ -1173,7 +1182,7 @@ bullets(s, rx, Inches(4.2), Inches(4.0), [
     "英雄 1 个职业完整 —— 建议镇邪者（现代占比最高、最好画）",
     "卡牌边框 4 稀有度 + 20 张卡插画",
     "地图界面（盲探迷雾）+ 腐蚀度条",
-], size=10.5, gap=0.4, spacing=1.25, marker="·", mcolor=FN_GOLD)
+], size=10, gap=0.45, spacing=1.22, marker="·", mcolor=FN_GOLD, mw=0.22)
 
 rect(s, ML, Inches(5.42), Inches(7.55), Inches(1.32), fill=PANEL)
 rect(s, ML, Inches(5.42), Pt(3), Inches(1.32), fill=VERM)
@@ -1227,7 +1236,7 @@ rect(s, ML, Inches(6.98), CW, Pt(0.7), fill=HAIR)
 # ================================================= 21 one-pager
 s = slide()
 head(s, "一页速查：可打印贴墙", kicker="附录 A",
-     sub="外包沟通、AI 出图、日常评审都用这一页。争议出现时，先回到这十条。")
+     sub="外包沟通、AI 出图、日常评审都用这一页。争议出现时，先回到这十条。", footer=False)
 
 lines = [("定位", "90% 真实城市 + 10% 不对劲", ASH),
          ("支柱", "V3 可读性 > V1 可信度 > V2 克制    ← 冲突时永远牺牲氛围", FN_ALLY),
@@ -1240,7 +1249,7 @@ lines = [("定位", "90% 真实城市 + 10% 不对劲", ASH),
          ("腐蚀", "一张底图 + 三组贴花 + 四档后处理   （后处理不得影响 UI 与高亮层）", FN_RUNE),
          ("红线", "无血浆 / 无 jump scare / 无无源紫光 / 场景无高饱和红 / 无古风画风", FN_DANGER),
          ("验收", "缩到 25% 还分得清 己方·敌方·体型·危害格·意图 = 合格", FN_ALLY)]
-rect(s, ML, Inches(2.05), CW, Inches(4.75), fill=RGBColor(0x08, 0x0B, 0x12), line=HAIR, lw=0.75)
+rect(s, ML, Inches(2.05), CW, Inches(4.68), fill=RGBColor(0x08, 0x0B, 0x12), line=HAIR, lw=0.75)
 for i, (k, v, c) in enumerate(lines):
     t = Inches(2.24) + i * Inches(0.41)
     txt(s, ML + Inches(0.3), t, Inches(0.85), Inches(0.28), "【" + k + "】",
@@ -1248,7 +1257,7 @@ for i, (k, v, c) in enumerate(lines):
     txt(s, ML + Inches(1.3), t, Inches(10.2), Inches(0.28), v, size=11.5,
         color=c, font=MONO if k in ("色板",) else SANS, spacing=1.0)
 
-txt(s, ML, Inches(6.95), Inches(9), Inches(0.26),
+txt(s, ML, Inches(6.86), Inches(9), Inches(0.26),
     [[("v0.1 —— 与 00_系统策划案.md v0.3 对齐。A1–A8 确认后升 v0.2。", {"color": DIM})]],
     size=10, spacing=1.0)
 

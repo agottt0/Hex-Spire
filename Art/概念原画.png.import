@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cfjhurxpambe3"
-path="res://.godot/imported/pencil-equipped-persona5-pencilequipped.jpg-3769845c0063ba59dd9020b2c21bebe4.ctex"
+uid="uid://dxh23p7246bea"
+path="res://.godot/imported/概念原画.png-ef70de42bf747a558f17e46798d01883.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://Art/pencil-equipped-persona5-pencilequipped.jpg"
-dest_files=["res://.godot/imported/pencil-equipped-persona5-pencilequipped.jpg-3769845c0063ba59dd9020b2c21bebe4.ctex"]
+source_file="res://Art/概念原画.png"
+dest_files=["res://.godot/imported/概念原画.png-ef70de42bf747a558f17e46798d01883.ctex"]
 
 [params]
 
