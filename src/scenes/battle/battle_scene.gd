@@ -39,8 +39,9 @@ func _ready() -> void:
 	_build_scene()
 	_start_battle("knight", "open_hall", "enc_01")
 	# 开发期：--shot 参数启动后自动截图并退出（无人值守验证画面）
+	#   可选 --shot-name=xxx 指定文件名，便于多分辨率对比
 	for a in OS.get_cmdline_user_args():
-		if a == "--shot":
+		if a == "--shot" or a.begins_with("--shot="):
 			_auto_screenshot()
 			break
 
@@ -49,7 +50,11 @@ func _auto_screenshot() -> void:
 	for _i in range(20):
 		await get_tree().process_frame
 	var img := get_viewport().get_texture().get_image()
-	var out := "user://battle_shot.png"
+	var suffix := ""
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--shot-name="):
+			suffix = "_" + a.split("=")[1]
+	var out := "user://battle_shot%s.png" % suffix
 	img.save_png(out)
 	print("[shot] %s  %dx%d" % [ProjectSettings.globalize_path(out),
 		img.get_width(), img.get_height()])
@@ -57,6 +62,20 @@ func _auto_screenshot() -> void:
 
 
 # ══════════════════════════════════════════════════════ 场景搭建
+#
+# ⚠️ 分辨率适配（这里曾写死 1920×1080 绝对坐标，小屏幕下 UI 跑到画面外）：
+#   · 工程用 canvas_items + aspect="keep" → 整个画布等比缩放，两侧留黑边
+#   · UI 全部用【锚点 + offset】而非绝对 position，
+#     这样即使基准分辨率改变、或用 aspect="expand" 也不会跑飞
+#   · 战场相机按【实际可用区】算缩放，不用硬编码的 300/280/210
+#
+# 面板宽度用基准分辨率的比例定义，改基准不用改代码。
+
+const UI_LEFT_W := 300.0     ## 左侧面板宽
+const UI_RIGHT_W := 200.0    ## 右侧按钮区宽
+const UI_TOP_H := 40.0       ## 顶部状态条高
+const UI_HAND_H := 200.0     ## 底部手牌区高
+
 
 func _build_scene() -> void:
 	board = HexBoardView.new()
@@ -74,67 +93,93 @@ func _build_scene() -> void:
 	ui_layer = CanvasLayer.new()
 	add_child(ui_layer)
 
-	# ---- 顶部状态条
-	status_label = _mk_label(ui_layer, Vector2(16, 10), 20)
-	# ---- 左侧英雄面板
-	hero_label = _mk_label(ui_layer, Vector2(16, 44), 15)
-	# ---- 右侧敌人信息
-	enemy_info = _mk_label(ui_layer, Vector2(16, 190), 14)
-	# ---- 伤害预览
-	preview_label = _mk_label(ui_layer, Vector2(16, 330), 17)
-	preview_label.add_theme_color_override("font_color", Color("#FFC94D"))
-	# ---- 事件日志
-	log_label = _mk_label(ui_layer, Vector2(16, 380), 12)
-	log_label.add_theme_color_override("font_color", Color(0.7, 0.72, 0.78))
+	# ---- 顶部状态条（贴顶，横向拉满）
+	status_label = _mk_label(ui_layer, 20)
+	_anchor(status_label, 0.0, 0.0, 1.0, 0.0, Vector4(16, 8, -16, 34))
 
-	# ---- 手牌区
+	# ---- 左侧：英雄面板 → 敌人信息 → 伤害预览 → 事件日志
+	#      纵向串成一列，用 VBoxContainer 自动排布，避免手算 y 坐标
+	var left := VBoxContainer.new()
+	left.add_theme_constant_override("separation", 14)
+	ui_layer.add_child(left)
+	_anchor(left, 0.0, 0.0, 0.0, 1.0, Vector4(16, UI_TOP_H, UI_LEFT_W, -UI_HAND_H))
+
+	hero_label = _mk_label(left, 15)
+	enemy_info = _mk_label(left, 14)
+	preview_label = _mk_label(left, 17)
+	preview_label.add_theme_color_override("font_color", Color("#FFC94D"))
+	log_label = _mk_label(left, 12)
+	log_label.add_theme_color_override("font_color", Color(0.7, 0.72, 0.78))
+	log_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	# ---- 底部手牌区（贴底，水平居中）
 	hand_box = HBoxContainer.new()
 	hand_box.add_theme_constant_override("separation", 8)
-	hand_box.position = Vector2(300, 880)
+	hand_box.alignment = BoxContainer.ALIGNMENT_CENTER
 	ui_layer.add_child(hand_box)
+	_anchor(hand_box, 0.0, 1.0, 1.0, 1.0,
+		Vector4(UI_LEFT_W, -UI_HAND_H + 6, -UI_RIGHT_W, -8))
 
-	# ---- 按钮
+	# ---- 右上：配置下拉（贴右上角）
+	var right_top := VBoxContainer.new()
+	right_top.add_theme_constant_override("separation", 6)
+	ui_layer.add_child(right_top)
+	_anchor(right_top, 1.0, 0.0, 1.0, 0.0, Vector4(-UI_RIGHT_W + 8, 12, -8, 200))
+
+	hero_option = _mk_option(right_top, ["knight", "giant"])
+	layout_option = _mk_option(right_top,
+		["open_hall", "narrow_pass", "bottleneck", "spike_cell"])
+	enc_option = _mk_option(right_top, ["enc_01", "enc_02", "enc_03", "enc_04"])
+
+	var hint := _mk_label(right_top, 12)
+	hint.text = "F1 坐标\n右键取消\n改配置后点重开"
+
+	# ---- 右下：按钮（贴右下角）
+	var right_bottom := VBoxContainer.new()
+	right_bottom.add_theme_constant_override("separation", 8)
+	ui_layer.add_child(right_bottom)
+	_anchor(right_bottom, 1.0, 1.0, 1.0, 1.0, Vector4(-UI_RIGHT_W + 8, -110, -8, -12))
+
 	end_turn_btn = Button.new()
 	end_turn_btn.text = "结束回合 (空格)"
-	end_turn_btn.position = Vector2(1660, 900)
-	end_turn_btn.size = Vector2(180, 50)
+	end_turn_btn.custom_minimum_size = Vector2(0, 46)
 	end_turn_btn.pressed.connect(_on_end_turn)
-	ui_layer.add_child(end_turn_btn)
+	right_bottom.add_child(end_turn_btn)
 
 	restart_btn = Button.new()
 	restart_btn.text = "重开"
-	restart_btn.position = Vector2(1660, governs_y())
-	restart_btn.size = Vector2(180, 40)
+	restart_btn.custom_minimum_size = Vector2(0, 38)
 	restart_btn.pressed.connect(_on_restart)
-	ui_layer.add_child(restart_btn)
+	right_bottom.add_child(restart_btn)
 
-	# ---- 配置下拉（灰盒期直接在场景里切换，省一个选人界面）
-	hero_option = _mk_option(ui_layer, Vector2(1660, 20), ["knight", "giant"])
-	layout_option = _mk_option(ui_layer, Vector2(1660, 60),
-		["open_hall", "narrow_pass", "bottleneck", "spike_cell"])
-	enc_option = _mk_option(ui_layer, Vector2(1660, 100),
-		["enc_01", "enc_02", "enc_03", "enc_04"])
-
-	var hint := _mk_label(ui_layer, Vector2(1660, 140), 12)
-	hint.text = "F1 坐标 / 右键取消\n改配置后点【重开】"
+	# 窗口尺寸变化时重新居中相机
+	get_viewport().size_changed.connect(_center_camera)
 
 
-func governs_y() -> int:
-	return 850
+## 设置锚点 + offset。offsets = (left, top, right, bottom)
+## 负值表示"距对边的距离"，这是 Godot 锚点布局的标准用法。
+func _anchor(c: Control, al: float, at: float, ar: float, ab: float, offsets: Vector4) -> void:
+	c.anchor_left = al
+	c.anchor_top = at
+	c.anchor_right = ar
+	c.anchor_bottom = ab
+	c.offset_left = offsets.x
+	c.offset_top = offsets.y
+	c.offset_right = offsets.z
+	c.offset_bottom = offsets.w
 
 
-func _mk_label(parent: Node, pos: Vector2, size: int) -> Label:
+func _mk_label(parent: Node, size: int) -> Label:
 	var l := Label.new()
-	l.position = pos
 	l.add_theme_font_size_override("font_size", size)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	parent.add_child(l)
 	return l
 
 
-func _mk_option(parent: Node, pos: Vector2, items: Array) -> OptionButton:
+func _mk_option(parent: Node, items: Array) -> OptionButton:
 	var o := OptionButton.new()
-	o.position = pos
-	o.size = Vector2(180, 32)
+	o.custom_minimum_size = Vector2(0, 30)
 	for it in items:
 		o.add_item(it)
 	parent.add_child(o)
@@ -163,18 +208,30 @@ func _start_battle(hero_id: String, layout_id: String, enc_id: String) -> void:
 
 
 func _center_camera() -> void:
+	if board == null or camera == null:
+		return
 	var r := board.board_rect()
-	# ⚠️ 布局约束（截图实测调出来的）：
-	#   · 左侧 ~300px 给英雄/敌人面板
-	#   · 底部 ~200px 给手牌，战场不能压到手牌上（否则玩家单位被挡住）
-	#   · 右侧 ~280px 给按钮与配置
-	var avail := Vector2(1920.0 - 300.0 - 280.0, 1080.0 - 60.0 - 210.0)
+	if r.size.x <= 0.0 or r.size.y <= 0.0:
+		return
+
+	# ⚠️ 用【实际视口尺寸】而非硬编码 1920×1080。
+	#   canvas_items + aspect="keep" 下 get_visible_rect() 给出的是
+	#   基准分辨率的逻辑尺寸（缩放由引擎负责），所以这里的算法
+	#   在任何窗口大小下都成立。
+	var vp := get_viewport_rect().size
+
+	# 战场可用区 = 视口减去四周 UI
+	var avail := Vector2(
+		maxf(vp.x - UI_LEFT_W - UI_RIGHT_W, 200.0),
+		maxf(vp.y - UI_TOP_H - UI_HAND_H, 200.0))
+
 	var zoom_f := minf(avail.x / r.size.x, avail.y / r.size.y)
-	camera.zoom = Vector2.ONE * clampf(zoom_f, 0.35, 1.2)
-	# 视口中心对准可用区中心（而非屏幕中心）
-	var view_center := Vector2(300.0 + avail.x * 0.5, 60.0 + avail.y * 0.5)
-	var screen_center := Vector2(960.0, 540.0)
-	camera.position = r.get_center() + (screen_center - view_center) / camera.zoom.x
+	camera.zoom = Vector2.ONE * clampf(zoom_f, 0.25, 1.5)
+
+	# 把战场中心对准可用区中心（而非视口中心）
+	var avail_center := Vector2(UI_LEFT_W + avail.x * 0.5, UI_TOP_H + avail.y * 0.5)
+	var vp_center := vp * 0.5
+	camera.position = r.get_center() + (vp_center - avail_center) / camera.zoom.x
 
 
 # ══════════════════════════════════════════════════════ 输入
