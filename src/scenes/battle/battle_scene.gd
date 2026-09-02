@@ -8,13 +8,21 @@ extends Node2D
 
 const HL := GreyboxTileSet.Alt
 
-## 章节场景背景。氛围只在【战场之外】发挥 ——
-## 美术文档 R7：格线必须始终可见；R1：地面明度对比 ≤20%。
-## 所以背景压暗并铺在 TileMapLayer 之下，不参与战场可读性。
+## 章节场景背景。
+##
+## ⚠️ 关系已反转（接透视后必须如此）：
+##   改造前是「战场决定背景」—— _fit_background() 把背景缩放去覆盖战场矩形。
+##   现在是「**背景定义地板平面，战场去贴合它**」：背景按可用区铺好后，
+##   由它的变换算出地板四边形的屏幕坐标，注入 HexBoardView 建立单应变换。
+##   顺序反了就会出现"网格贴在错误的地板上"，而且会随窗口尺寸漂移。
 const BG_PATH := "res://Art/Scene1/Chapter1_BattleScene.png"
-const BG_DIM := Color(0.58, 0.58, 0.66)
-## 相对战场外接矩形的覆盖系数
-const BG_COVER := 1.25
+## 压暗系数。美术文档 R1（地面明度对比 ≤20%）与 R7（格线恒可见）要求
+## 背景不能和高亮层抢视觉；同时 §5.3 把氛围配额留给过场，战斗内让位可读性。
+##
+## 0.72 而非更暗：地形填充已改为近乎透明（见 HexBoardView.TERRAIN_ALPHA），
+## 地砖是玩家现在真正看到的"地面"，压太暗会让格线悬在一片黑上，
+## 反而失去贴地感。
+const BG_DIM := Color(0.72, 0.72, 0.78)
 
 var state: BattleState
 var flow: BattleFlow
@@ -43,6 +51,7 @@ var _card_views: Array[CardView] = []
 var _selected_card: CardView = null
 var _legal_cells: Array = []
 var _log_lines: Array[String] = []
+var _want_floor_debug := false
 
 
 func _ready() -> void:
@@ -58,7 +67,11 @@ func _ready() -> void:
 			layout = a.split("=")[1]
 		elif a.begins_with("--enc="):
 			enc = a.split("=")[1]
+		elif a == "--floor-debug":
+			_want_floor_debug = true
 	_start_battle(hero, layout, enc)
+	if _want_floor_debug:
+		board.toggle_floor_debug()
 	_select_option(hero_option, hero)
 	_select_option(layout_option, layout)
 	_select_option(enc_option, enc)
@@ -171,7 +184,7 @@ func _build_scene() -> void:
 	enc_option = _mk_option(right_top, ["enc_01", "enc_02", "enc_03", "enc_04"])
 
 	var hint := _mk_label(right_top, 12)
-	hint.text = "F1 坐标\n右键取消\n改配置后点重开"
+	hint.text = "F1 坐标  F2 地板\n右键取消\n改配置后点重开"
 
 	# ---- 右下：按钮（贴右下角）
 	var right_bottom := VBoxContainer.new()
@@ -274,50 +287,88 @@ func _start_battle(hero_id: String, layout_id: String, enc_id: String) -> void:
 const BOARD_TOP_HEADROOM := 1.35
 
 
+## 背景在可用区里的填充系数。>1 让背景略微溢出，避免边缘露出画布底色。
+const BG_COVER := 1.02
+
+## 背景缩放上限。
+## ⚠️ 放大会让 2048×1152 的底图糊掉，糊掉的底图直接削弱美术文档 V1
+##   「日常的可信度」（遮住异常元素后应像一张普通城市夜景照片）。
+const BG_MAX_SCALE := 1.0
+
+
+## ══════════════════════════════════════════════════════════════════
+## 布局主流程（顺序不可调换）
+##   ① 背景按可用区铺好 → ② 由背景变换算出地板四边形 → ③ 注入 board 建单应
+##   → ④ 相机按【投影后】的战场外框取景
+##
+## ②→③ 是关键：网格的几何依赖背景的实际像素位置，所以背景必须先定位。
+## ④ 必须在 ③ 之后，因为 board_rect() 返回的是投影后的 AABB。
+## ══════════════════════════════════════════════════════════════════
 func _center_camera() -> void:
 	if board == null or camera == null:
 		return
-	var r := board.board_rect()
-	if r.size.x <= 0.0 or r.size.y <= 0.0:
-		return
-
-	# 取景用【含立绘留白】的矩形，背景也按它铺，避免缩放后露出画布底色
-	var framed := r.grow_individual(0.0, float(K.TILE_H) * BOARD_TOP_HEADROOM, 0.0, 0.0)
-	_fit_background(framed)
 
 	# ⚠️ 用【实际视口尺寸】而非硬编码 1920×1080。
-	#   canvas_items + aspect="keep" 下 get_visible_rect() 给出的是
-	#   基准分辨率的逻辑尺寸（缩放由引擎负责），所以这里的算法
-	#   在任何窗口大小下都成立。
+	#   canvas_items + aspect="keep" 下给出的是基准分辨率的逻辑尺寸
+	#   （缩放由引擎负责），所以算法在任何窗口大小下都成立。
 	var vp := get_viewport_rect().size
-
 	# 战场可用区 = 视口减去四周 UI
 	var avail := Vector2(
 		maxf(vp.x - UI_LEFT_W - UI_RIGHT_W, 200.0),
 		maxf(vp.y - UI_TOP_H - UI_HAND_H, 200.0))
+	var avail_center := Vector2(UI_LEFT_W + avail.x * 0.5, UI_TOP_H + avail.y * 0.5)
+	var vp_center := vp * 0.5
+
+	# ① 背景铺满可用区（以世界原点为中心）
+	_fit_background(avail)
+	# ②③ 地板四边形 → 注入投影
+	board.set_floor_quad(_floor_quad_world())
+
+	# ④ 相机取景：投影后的战场外框 + 顶部立绘留白
+	var r := board.board_rect()
+	if r.size.x <= 0.0 or r.size.y <= 0.0:
+		return
+	var framed := r.grow_individual(0.0, float(K.TILE_H) * BOARD_TOP_HEADROOM, 0.0, 0.0)
+	# 背景本身也要落在取景内，否则会被裁到露底
+	framed = framed.merge(_background_rect())
 
 	var zoom_f := minf(avail.x / framed.size.x, avail.y / framed.size.y)
 	camera.zoom = Vector2.ONE * clampf(zoom_f, 0.25, 1.5)
-
-	# 把战场中心对准可用区中心（而非视口中心）
-	var avail_center := Vector2(UI_LEFT_W + avail.x * 0.5, UI_TOP_H + avail.y * 0.5)
-	var vp_center := vp * 0.5
 	camera.position = framed.get_center() + (vp_center - avail_center) / camera.zoom.x
 
 
-## 背景铺满战场外接矩形的 BG_COVER 倍。
-## ⚠️ 缩放上限卡在 1.0：放大会让 2048×1152 的底图糊掉，
-##   而糊掉的底图会削弱美术文档 V1「日常的可信度」。宽度不足处露出画布底色即可。
-func _fit_background(r: Rect2) -> void:
+## 背景按可用区等比填充，居中于世界原点
+func _fit_background(avail: Vector2) -> void:
 	if background == null or background.texture == null:
 		return
 	var tex := background.texture.get_size()
 	if tex.x <= 0.0 or tex.y <= 0.0:
 		return
-	var need := r.size * BG_COVER
-	var s := maxf(need.x / tex.x, need.y / tex.y)
-	background.scale = Vector2.ONE * minf(s, 1.0)
-	background.position = r.get_center()
+	var s := maxf(avail.x / tex.x, avail.y / tex.y) * BG_COVER
+	background.scale = Vector2.ONE * minf(s, BG_MAX_SCALE)
+	background.position = Vector2.ZERO
+
+
+## 背景当前占据的世界矩形（Sprite2D 默认 centered）
+func _background_rect() -> Rect2:
+	if background == null or background.texture == null:
+		return Rect2()
+	var sz := background.texture.get_size() * background.scale
+	return Rect2(background.position - sz * 0.5, sz)
+
+
+## 把 HexBoardView.FLOOR_QUAD_UV（背景纹理归一化坐标）换算到世界坐标。
+## 这是「背景定义地板」的落点：改背景图或改 UV，网格自动跟随。
+func _floor_quad_world() -> Array:
+	if background == null or background.texture == null:
+		return []
+	var br := _background_rect()
+	var out: Array = []
+	for uv in HexBoardView.FLOOR_QUAD_UV:
+		var t: Vector2 = uv
+		out.append(br.position + Vector2(br.size.x * t.x, br.size.y * t.y))
+	return out
+
 
 
 ## 让某个单位播一次攻击动画。单位无美术资产时静默跳过。
@@ -332,6 +383,10 @@ func _play_attack_anim(uid: int) -> void:
 func _unhandled_input(ev: InputEvent) -> void:
 	if ev.is_action_pressed("toggle_coord_debug"):
 		board.toggle_coords()
+	elif ev is InputEventKey and ev.pressed and not ev.echo \
+			and ev.keycode == KEY_F2:
+		# F2：地板四边形叠层，用于对着背景校准 HexBoardView.FLOOR_QUAD_UV
+		board.toggle_floor_debug()
 	elif ev.is_action_pressed("end_turn"):
 		_on_end_turn()
 	elif ev.is_action_pressed("cancel_action"):

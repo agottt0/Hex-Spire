@@ -226,9 +226,12 @@ func _update_sprite_transform() -> void:
 		return
 	# 脚底锚点：贴合占位中心，与该处的接地阴影同一水平线
 	var p := _footprint_center()
-	_sprite.position = p + Vector2(0, float(K.TILE_H) * FOOT_OFFSET_RATIO)
+	# 透视下"下移半格"的像素量本身也要随深度收缩，否则远处的脚会陷进地面
+	var ds := _depth_scale()
+	_sprite.position = p + Vector2(0, float(K.TILE_H) * FOOT_OFFSET_RATIO * ds)
 
-	var target_h := SIZE_TARGET_H[clampi(size_class, 0, 2)] * float(K.TILE_H)
+	# ⚠️ 尺寸必须乘深度缩放，否则远处单位显得悬浮／过大，透视立刻穿帮
+	var target_h := SIZE_TARGET_H[clampi(size_class, 0, 2)] * float(K.TILE_H) * ds
 	var s := target_h / float(maxi(1, _canvas.y))
 	_sprite.scale = Vector2(s, s)
 
@@ -239,6 +242,16 @@ func _update_sprite_transform() -> void:
 	if absf(screen_dir.x) > 0.5:
 		var faces_left := screen_dir.x < 0.0
 		_sprite.flip_h = faces_left if SPRITE_FACES_RIGHT else not faces_left
+
+
+## 本单位所在处的深度缩放。取锚点格，保证与 HP 条／标签一致。
+##
+## 走 unit_depth_scale_at（弱化版）而非 depth_scale_at：
+## 地面走满透视、角色欠透视，否则远处敌人缩到 50%、意图图标读不出来。
+func _depth_scale() -> float:
+	if board == null:
+		return 1.0
+	return board.unit_depth_scale_at(anchor_offset.x, anchor_offset.y)
 
 
 func _update_labels() -> void:
@@ -255,13 +268,15 @@ func _update_labels() -> void:
 	# ⚠️ 有 sprite 时标签必须升到【头顶之上】。
 	#   灰盒期 -0.55 格高刚好在圆形上方，但角色 sprite 高达 1.6–3.5 格，
 	#   沿用旧偏移会把血量文字压在角色胸口 —— 既挡画面又读不清（实测踩过）。
-	var lift := float(K.TILE_H) * 0.55
+	#   sprite.scale 已含深度缩放，所以有 sprite 那条分支自然跟着透视走。
+	var ds := _depth_scale()
+	var lift := float(K.TILE_H) * 0.55 * ds
 	if _has_art:
 		lift = float(_canvas.y) * _sprite.scale.y \
-			- float(K.TILE_H) * FOOT_OFFSET_RATIO + 6.0
-	_label.position = p + Vector2(-52, -lift)
+			- float(K.TILE_H) * FOOT_OFFSET_RATIO * ds + 6.0
+	_label.position = p + Vector2(-52 * ds, -lift)
 	_intent_label.text = intent_text
-	_intent_label.position = p + Vector2(-40, -lift - 20)
+	_intent_label.position = p + Vector2(-40 * ds, -lift - 20)
 
 
 func body_color() -> Color:
@@ -283,11 +298,13 @@ func _draw() -> void:
 		return
 
 	# ── 1. 接地阴影（每个占用格都画 —— §13.2 硬要求）
+	#
+	# ⚠️ 旧实现是 draw_set_transform(scale(1, 0.42)) —— 那个 0.42 是【假透视】：
+	#   一个写死的压扁比，在真投影下会与格子形状打架（远近压扁程度本应不同）。
+	#   现在直接用投影后的六边形按比例内缩当阴影，形状天然与地砖一致。
 	for cell in cells_offset:
-		var p: Vector2 = board.world_pos_of(cell[0], cell[1])
-		draw_set_transform(p + Vector2(0, float(K.TILE_H) * 0.22), 0.0, Vector2(1.0, 0.42))
-		draw_circle(Vector2.ZERO, float(K.TILE_W) * 0.30, Color(0, 0, 0, 0.40))
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		var hex := board.hex_points(cell[0], cell[1])
+		draw_colored_polygon(_shrink(hex, 0.62), Color(0, 0, 0, 0.40))
 
 	# ── 2. 本体 / 占位指示
 	#    有 sprite 时这一层降级为【占位指示】：角色画身体，地面画"占哪几格"。
@@ -300,10 +317,10 @@ func _draw() -> void:
 			draw_colored_polygon(_shrink(poly, 0.82), Color(bc, FILL_ALPHA_WITH_ART))
 		_draw_footprint_outline()
 	elif cells_offset.size() == 1:
-		# S 灰盒：圆形
-		var p0: Vector2 = board.world_pos_of(cells_offset[0][0], cells_offset[0][1])
-		draw_circle(p0, float(K.TILE_W) * 0.30, bc)
-		draw_arc(p0, float(K.TILE_W) * 0.30, 0, TAU, 32, outline_color(), 3.0, true)
+		# S 灰盒：贴合投影格形的多边形（不再用正圆 —— 透视下会不贴地）
+		var solo := board.hex_points(cells_offset[0][0], cells_offset[0][1])
+		draw_colored_polygon(_shrink(solo, 0.66), bc)
+		draw_polyline(_closed(_shrink(solo, 0.66)), outline_color(), 3.0, true)
 	else:
 		# M/L 灰盒：填充所有占格 + 完整边界描边
 		for cell in cells_offset:
@@ -312,24 +329,27 @@ func _draw() -> void:
 		_draw_footprint_outline()
 
 	# ── 3. 朝向指示（走 facing_dir —— 陷阱 H1）
-	#    有 sprite 时贴地绘制，避免线条穿过角色身体
+	#    长度与线宽按深度缩放，远处不至于比格子还长
 	var ap: Vector2 = board.world_pos_of(anchor_offset.x, anchor_offset.y)
+	var ds := _depth_scale()
 	var origin := ap
 	if _has_art:
-		origin = ap + Vector2(0, float(K.TILE_H) * FOOT_OFFSET_RATIO)
+		origin = ap + Vector2(0, float(K.TILE_H) * FOOT_OFFSET_RATIO * ds)
 	var fd := HexCoord.facing_dir(facing)
 	var anchor_cube := HexCoord.offset_to_cube(anchor_offset.x, anchor_offset.y)
 	var target := board.world_pos_of_cube(anchor_cube + fd)
 	var dir := (target - ap).normalized()
-	draw_line(origin, origin + dir * float(K.TILE_W) * 0.38, outline_color(), 5.0, true)
+	draw_line(origin, origin + dir * float(K.TILE_W) * 0.38 * ds,
+		outline_color(), maxf(2.0, 5.0 * ds), true)
 	# 小三角箭头
-	var tip := origin + dir * float(K.TILE_W) * 0.46
-	var perp := Vector2(-dir.y, dir.x) * 7.0
-	draw_colored_polygon(PackedVector2Array([tip, tip - dir * 12.0 + perp,
-		tip - dir * 12.0 - perp]), outline_color())
+	var tip := origin + dir * float(K.TILE_W) * 0.46 * ds
+	var perp := Vector2(-dir.y, dir.x) * 7.0 * ds
+	draw_colored_polygon(PackedVector2Array([tip,
+		tip - dir * 12.0 * ds + perp,
+		tip - dir * 12.0 * ds - perp]), outline_color())
 
 	# ── 4. HP 条
-	_draw_hp_bar(ap)
+	_draw_hp_bar(ap, ds)
 
 
 ## footprint 边界描边：只画外边，内部共享边丢弃（§13.2）
@@ -376,10 +396,20 @@ static func _shrink(poly: PackedVector2Array, factor: float) -> PackedVector2Arr
 	return out
 
 
-func _draw_hp_bar(center: Vector2) -> void:
-	var w := float(K.TILE_W) * 0.62
-	var h := 7.0
-	var top_left := center + Vector2(-w * 0.5, float(K.TILE_H) * 0.30)
+## 收尾成闭合折线（描边用）
+static func _closed(poly: PackedVector2Array) -> PackedVector2Array:
+	var out := poly.duplicate()
+	if out.size() > 0:
+		out.append(out[0])
+	return out
+
+
+## HP 条。宽度随深度缩放，但【高度设下限】——
+## 血条是关键信息，远处也必须能读出（美术文档 V3 优先于透视一致性）。
+func _draw_hp_bar(center: Vector2, ds: float) -> void:
+	var w := float(K.TILE_W) * 0.62 * ds
+	var h := maxf(4.0, 7.0 * ds)
+	var top_left := center + Vector2(-w * 0.5, float(K.TILE_H) * 0.30 * ds)
 	draw_rect(Rect2(top_left, Vector2(w, h)), Color(0.06, 0.06, 0.08, 0.9))
 	var ratio := clampf(float(hp) / float(maxi(1, hp_max)), 0.0, 1.0)
 	var fill := Color("#5FD16A") if team == int(GameEnums.Team.PLAYER) else Color("#D15F5F")
