@@ -1,0 +1,42 @@
+[gd_resource type="SpriteFrames" format=3 uid="uid://4grjp3i57wmj"]
+
+[ext_resource type="Texture2D" uid="uid://0nhta6hmnd0l" path="res://Art/Character/镇妖者/Move/image_1.png" id="1_klgtw"]
+[ext_resource type="Texture2D" uid="uid://b1mqxxorx1lo7" path="res://Art/Character/镇妖者/Move/image_2.png" id="2_0d1f0"]
+[ext_resource type="Texture2D" uid="uid://d1em6ts3swkdf" path="res://Art/Character/镇妖者/Move/image_3.png" id="3_qd7sn"]
+[ext_resource type="Texture2D" uid="uid://r81yvrtj2cm4" path="res://Art/Character/镇妖者/Move/image_4.png" id="4_3w2hb"]
+[ext_resource type="Texture2D" uid="uid://jct034lc04qd" path="res://Art/Character/镇妖者/Move/image_5.png" id="5_dv2w7"]
+[ext_resource type="Texture2D" uid="uid://da3wkdssdpynu" path="res://Art/Character/镇妖者/Move/image_6.png" id="6_3hm5e"]
+[ext_resource type="Texture2D" uid="uid://bao657c27kjjk" path="res://Art/Character/镇妖者/Move/image_7.png" id="7_lkad2"]
+[ext_resource type="Texture2D" uid="uid://dfpn0e2yc48d6" path="res://Art/Character/镇妖者/Move/image_8.png" id="8_ixwwm"]
+
+[resource]
+animations = [{
+"frames": [{
+"duration": 1.0,
+"texture": ExtResource("1_klgtw")
+}, {
+"duration": 1.0,
+"texture": ExtResource("2_0d1f0")
+}, {
+"duration": 1.0,
+"texture": ExtResource("3_qd7sn")
+}, {
+"duration": 1.0,
+"texture": ExtResource("4_3w2hb")
+}, {
+"duration": 1.0,
+"texture": ExtResource("5_dv2w7")
+}, {
+"duration": 1.0,
+"texture": ExtResource("6_3hm5e")
+}, {
+"duration": 1.0,
+"texture": ExtResource("7_lkad2")
+}, {
+"duration": 1.0,
+"texture": ExtResource("8_ixwwm")
+}],
+"loop": 1,
+"name": &"default",
+"speed": 8.0
+}]

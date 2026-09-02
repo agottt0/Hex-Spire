@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cko7q8p8wpvvw"
-path="res://.godot/imported/术士.png-e6b6c63bbbfc0c148cd5bcc82a9364ca.ctex"
+uid="uid://cvb5rm2bysisp"
+path="res://.godot/imported/image_1.png-ce5b905f97ec03baee84051b8b9e01c7.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://Art/Character/术士.png"
-dest_files=["res://.godot/imported/术士.png-e6b6c63bbbfc0c148cd5bcc82a9364ca.ctex"]
+source_file="res://Art/Character/镇妖者/Idle/image_1.png"
+dest_files=["res://.godot/imported/image_1.png-ce5b905f97ec03baee84051b8b9e01c7.ctex"]
 
 [params]
 

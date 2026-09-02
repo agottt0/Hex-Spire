@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dme12ojiknndt"
-path="res://.godot/imported/妖化者.png-f35c381472142acbf1991e17685d7ed1.ctex"
+uid="uid://ci0742diqbyx3"
+path="res://.godot/imported/Defend.png-605b047ea4edf151095061b423c6d32b.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://Art/Character/妖化者.png"
-dest_files=["res://.godot/imported/妖化者.png-f35c381472142acbf1991e17685d7ed1.ctex"]
+source_file="res://Art/Card/Defend.png"
+dest_files=["res://.godot/imported/Defend.png-605b047ea4edf151095061b423c6d32b.ctex"]
 
 [params]
 

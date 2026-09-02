@@ -1,0 +1,34 @@
+[gd_resource type="SpriteFrames" format=3 uid="uid://42hdqbbrpayi"]
+
+[ext_resource type="Texture2D" uid="uid://cvb5rm2bysisp" path="res://Art/Character/镇妖者/Idle/image_1.png" id="1_wbdbi"]
+[ext_resource type="Texture2D" uid="uid://qp0wvo23mnt" path="res://Art/Character/镇妖者/Idle/image_2.png" id="2_35hvg"]
+[ext_resource type="Texture2D" uid="uid://dkofxcolylxn1" path="res://Art/Character/镇妖者/Idle/image_3.png" id="3_8llb3"]
+[ext_resource type="Texture2D" uid="uid://dnpynckopt7nn" path="res://Art/Character/镇妖者/Idle/image_4.png" id="4_0kq2h"]
+[ext_resource type="Texture2D" uid="uid://v2qqy8n8vgvu" path="res://Art/Character/镇妖者/Idle/image_5.png" id="5_rl1h1"]
+[ext_resource type="Texture2D" uid="uid://5lecp8ygh04i" path="res://Art/Character/镇妖者/Idle/image_6.png" id="6_idwy0"]
+
+[resource]
+animations = [{
+"frames": [{
+"duration": 1.0,
+"texture": ExtResource("1_wbdbi")
+}, {
+"duration": 1.0,
+"texture": ExtResource("2_35hvg")
+}, {
+"duration": 1.0,
+"texture": ExtResource("3_8llb3")
+}, {
+"duration": 1.0,
+"texture": ExtResource("4_0kq2h")
+}, {
+"duration": 1.0,
+"texture": ExtResource("5_rl1h1")
+}, {
+"duration": 1.0,
+"texture": ExtResource("6_idwy0")
+}],
+"loop": 1,
+"name": &"default",
+"speed": 6.0
+}]
