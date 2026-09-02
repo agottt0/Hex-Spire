@@ -8,9 +8,18 @@ extends Node2D
 
 const HL := GreyboxTileSet.Alt
 
+## 章节场景背景。氛围只在【战场之外】发挥 ——
+## 美术文档 R7：格线必须始终可见；R1：地面明度对比 ≤20%。
+## 所以背景压暗并铺在 TileMapLayer 之下，不参与战场可读性。
+const BG_PATH := "res://Art/Scene1/Chapter1_BattleScene.png"
+const BG_DIM := Color(0.58, 0.58, 0.66)
+## 相对战场外接矩形的覆盖系数
+const BG_COVER := 1.25
+
 var state: BattleState
 var flow: BattleFlow
 
+var background: Sprite2D
 var board: HexBoardView
 var units_root: Node2D
 var ui_layer: CanvasLayer
@@ -18,6 +27,7 @@ var camera: Camera2D
 
 var hand_box: HBoxContainer
 var status_label: Label
+var hero_portrait: TextureRect
 var hero_label: Label
 var enemy_info: Label
 var preview_label: Label
@@ -37,7 +47,21 @@ var _log_lines: Array[String] = []
 
 func _ready() -> void:
 	_build_scene()
-	_start_battle("knight", "open_hall", "enc_01")
+	# 开发期：--hero=/--layout=/--enc= 可覆盖默认开局，便于无人值守核对各体型
+	var hero := "knight"
+	var layout := "open_hall"
+	var enc := "enc_01"
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--hero="):
+			hero = a.split("=")[1]
+		elif a.begins_with("--layout="):
+			layout = a.split("=")[1]
+		elif a.begins_with("--enc="):
+			enc = a.split("=")[1]
+	_start_battle(hero, layout, enc)
+	_select_option(hero_option, hero)
+	_select_option(layout_option, layout)
+	_select_option(enc_option, enc)
 	# 开发期：--shot 参数启动后自动截图并退出（无人值守验证画面）
 	#   可选 --shot-name=xxx 指定文件名，便于多分辨率对比
 	for a in OS.get_cmdline_user_args():
@@ -78,6 +102,15 @@ const UI_HAND_H := 200.0     ## 底部手牌区高
 
 
 func _build_scene() -> void:
+	# 章节背景（铺在战场之下，不影响格线与高亮层的可读性）
+	if ResourceLoader.exists(BG_PATH):
+		background = Sprite2D.new()
+		background.name = "Background"
+		background.texture = load(BG_PATH)
+		background.modulate = BG_DIM
+		background.z_index = -10
+		add_child(background)
+
 	board = HexBoardView.new()
 	board.name = "Board"
 	add_child(board)
@@ -103,6 +136,12 @@ func _build_scene() -> void:
 	left.add_theme_constant_override("separation", 14)
 	ui_layer.add_child(left)
 	_anchor(left, 0.0, 0.0, 0.0, 1.0, Vector4(16, UI_TOP_H, UI_LEFT_W, -UI_HAND_H))
+
+	hero_portrait = TextureRect.new()
+	hero_portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	hero_portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	hero_portrait.custom_minimum_size = Vector2(0, 150)
+	left.add_child(hero_portrait)
 
 	hero_label = _mk_label(left, 15)
 	enemy_info = _mk_label(left, 14)
@@ -186,6 +225,16 @@ func _mk_option(parent: Node, items: Array) -> OptionButton:
 	return o
 
 
+## 让下拉框与命令行覆盖的开局保持一致，否则点「重开」会跳回默认配置
+func _select_option(o: OptionButton, value: String) -> void:
+	if o == null:
+		return
+	for i in range(o.item_count):
+		if o.get_item_text(i) == value:
+			o.selected = i
+			return
+
+
 # ══════════════════════════════════════════════════════ 开局
 
 func _start_battle(hero_id: String, layout_id: String, enc_id: String) -> void:
@@ -202,9 +251,27 @@ func _start_battle(hero_id: String, layout_id: String, enc_id: String) -> void:
 
 	board.render_grid(state.grid)
 	_center_camera()
+	# 无立绘资产的英雄不占版面
+	var portrait := UnitSprites.portrait_for(hero_id)
+	hero_portrait.texture = portrait
+	hero_portrait.visible = portrait != null
 
 	flow.battle_start(setup["deck"])
 	_sync_all()
+
+
+## 战场外接矩形顶部要为【单位立绘 + 头顶标签】留出的额外高度（单位 = 格高）。
+##
+## ⚠️ board_rect() 只按格子几何算，上下各留半格。但角色 sprite 从脚底往上
+##   可达 1.6 格高（S）+ 头顶两行标签，第 7 行（最上排）的单位会被视口
+##   裁掉头部 —— 实测敌人只剩下半身。
+##
+## ⚠️ 这个值【不能取大】：它会参与 zoom 计算，留白越多整个战场越小。
+##   取 2.1 时 zoom 从 1.03 掉到 0.75，单位明显偏小且底部露出空档（实测）。
+##   按 S 体型精算：sprite 顶 1.6 格 + 两行标签 ≈ 250px，board_rect 已含
+##   0.5 格 = 74px，故实需 (250-74)/148 ≈ 1.19 格。取 1.35 留一点余量。
+##   M/L 体型更高，但它们生成在下半区，不会贴到视口上边缘。
+const BOARD_TOP_HEADROOM := 1.35
 
 
 func _center_camera() -> void:
@@ -213,6 +280,10 @@ func _center_camera() -> void:
 	var r := board.board_rect()
 	if r.size.x <= 0.0 or r.size.y <= 0.0:
 		return
+
+	# 取景用【含立绘留白】的矩形，背景也按它铺，避免缩放后露出画布底色
+	var framed := r.grow_individual(0.0, float(K.TILE_H) * BOARD_TOP_HEADROOM, 0.0, 0.0)
+	_fit_background(framed)
 
 	# ⚠️ 用【实际视口尺寸】而非硬编码 1920×1080。
 	#   canvas_items + aspect="keep" 下 get_visible_rect() 给出的是
@@ -225,13 +296,35 @@ func _center_camera() -> void:
 		maxf(vp.x - UI_LEFT_W - UI_RIGHT_W, 200.0),
 		maxf(vp.y - UI_TOP_H - UI_HAND_H, 200.0))
 
-	var zoom_f := minf(avail.x / r.size.x, avail.y / r.size.y)
+	var zoom_f := minf(avail.x / framed.size.x, avail.y / framed.size.y)
 	camera.zoom = Vector2.ONE * clampf(zoom_f, 0.25, 1.5)
 
 	# 把战场中心对准可用区中心（而非视口中心）
 	var avail_center := Vector2(UI_LEFT_W + avail.x * 0.5, UI_TOP_H + avail.y * 0.5)
 	var vp_center := vp * 0.5
-	camera.position = r.get_center() + (vp_center - avail_center) / camera.zoom.x
+	camera.position = framed.get_center() + (vp_center - avail_center) / camera.zoom.x
+
+
+## 背景铺满战场外接矩形的 BG_COVER 倍。
+## ⚠️ 缩放上限卡在 1.0：放大会让 2048×1152 的底图糊掉，
+##   而糊掉的底图会削弱美术文档 V1「日常的可信度」。宽度不足处露出画布底色即可。
+func _fit_background(r: Rect2) -> void:
+	if background == null or background.texture == null:
+		return
+	var tex := background.texture.get_size()
+	if tex.x <= 0.0 or tex.y <= 0.0:
+		return
+	var need := r.size * BG_COVER
+	var s := maxf(need.x / tex.x, need.y / tex.y)
+	background.scale = Vector2.ONE * minf(s, 1.0)
+	background.position = r.get_center()
+
+
+## 让某个单位播一次攻击动画。单位无美术资产时静默跳过。
+func _play_attack_anim(uid: int) -> void:
+	var v: UnitView = _unit_views.get(uid)
+	if v != null:
+		v.play_attack()
 
 
 # ══════════════════════════════════════════════════════ 输入
@@ -315,17 +408,35 @@ func _try_play_at_mouse() -> void:
 			_flash("目标非法")
 			return
 
+	# 攻击动画是【事后反馈】：逻辑瞬时结算完，这里才播（架构文档 §1）
+	var is_attack := cd.card_type == GameEnums.CardType.ATTACK
+	var actor := state.player_unit_id
+
 	if flow.play_card(card, target):
 		_clear_selection()
 		_sync_all()
+		if is_attack:
+			_play_attack_anim(actor)
 
 
 func _on_end_turn() -> void:
 	if state.is_over or state.phase != GameEnums.BattlePhase.PLAYER_PHASE:
 		return
 	_clear_selection()
+
+	# 先记下【打算攻击】的敌人 —— 意图是承诺（架构文档 §4.6），
+	# 结算后 intent 会被刷成下一回合的，所以必须在 end_turn 之前采集。
+	var attackers: Array[int] = []
+	for u in state.alive_enemies():
+		var kind: int = u.intent.get("kind", 0)
+		if kind == int(GameEnums.IntentKind.ATTACK) \
+				or kind == int(GameEnums.IntentKind.MULTI_ATTACK):
+			attackers.append(u.id)
+
 	flow.end_turn()
 	_sync_all()
+	for uid in attackers:
+		_play_attack_anim(uid)
 
 
 func _on_restart() -> void:
