@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://behttnvwnuxjw"
-path="res://.godot/imported/p5-1.jpg-7ae10fbf58558dd08bc5a9984d0fc2f5.ctex"
+uid="uid://cxknun40kss1l"
+path="res://.godot/imported/镇妖者.png-0589b7d371c4ea30fcb4899df9a05999.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://Art/p5/p5-1.jpg"
-dest_files=["res://.godot/imported/p5-1.jpg-7ae10fbf58558dd08bc5a9984d0fc2f5.ctex"]
+source_file="res://Art/Character/镇妖者.png"
+dest_files=["res://.godot/imported/镇妖者.png-0589b7d371c4ea30fcb4899df9a05999.ctex"]
 
 [params]
 

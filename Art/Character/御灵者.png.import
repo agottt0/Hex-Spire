@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://d1xxski16jnil"
-path="res://.godot/imported/方士.png-99053e914e87d4b674b46ce29bd80854.ctex"
+uid="uid://cksmrdk0y8am6"
+path="res://.godot/imported/御灵者.png-1febffdc0e345b89c1e370a52b5cc012.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://Art/方士.png"
-dest_files=["res://.godot/imported/方士.png-99053e914e87d4b674b46ce29bd80854.ctex"]
+source_file="res://Art/Character/御灵者.png"
+dest_files=["res://.godot/imported/御灵者.png-1febffdc0e345b89c1e370a52b5cc012.ctex"]
 
 [params]
 

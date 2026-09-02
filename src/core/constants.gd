@@ -113,6 +113,6 @@ const MAX_ROUNDS_PER_BATTLE := 50
 ## 事件播放间隔（秒）。设为 0 = 一键跳过动画（§13.2）
 const EVENT_PLAYBACK_INTERVAL := 0.12
 
-## Tile 尺寸（美术文档 §9.1：尖顶六边形，高 = 宽 × 2/√3 = 147.8 → 148）
+## Tile 尺寸（策划案 §14.3：尖顶六边形；高 = 宽 × 2/√3 = 147.8 → 148）
 const TILE_W := 128
 const TILE_H := 148

@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dxh23p7246bea"
-path="res://.godot/imported/概念原画.png-ef70de42bf747a558f17e46798d01883.ctex"
+uid="uid://cko7q8p8wpvvw"
+path="res://.godot/imported/术士.png-e6b6c63bbbfc0c148cd5bcc82a9364ca.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://Art/概念原画.png"
-dest_files=["res://.godot/imported/概念原画.png-ef70de42bf747a558f17e46798d01883.ctex"]
+source_file="res://Art/Character/术士.png"
+dest_files=["res://.godot/imported/术士.png-e6b6c63bbbfc0c148cd5bcc82a9364ca.ctex"]
 
 [params]
 
